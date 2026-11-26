@@ -127,8 +127,8 @@ const getHttpOrigin = (value: string | null | undefined) => {
 const toTabInfo = (tab: Tab) => ({
   id: tab.id, title: tab.title || 'Nuova scheda', url: tab.url,
   isNewTab: !tab.url, loading: tab.loading,
-  canGoBack: !!tab.view?.webContents.canGoBack(),
-  canGoForward: !!tab.view?.webContents.canGoForward(),
+  canGoBack: !!tab.view?.webContents.navigationHistory.canGoBack(),
+  canGoForward: !!tab.view?.webContents.navigationHistory.canGoForward(),
   audible: tab.audible, incognito: tab.incognito, faviconUrl: tab.faviconUrl, suspended: tab.suspended
 });
 
@@ -913,8 +913,8 @@ ipcMain.handle('tabs:move', (_event, payload: { id: string; targetIndex: number 
   tabs.splice(Math.max(0, Math.min(payload.targetIndex, tabs.length)), 0, tab);
   emitState();
 });
-ipcMain.handle('browser:back', () => { const view = currentTabView(); if (view?.canGoBack()) view.goBack(); });
-ipcMain.handle('browser:forward', () => { const view = currentTabView(); if (view?.canGoForward()) view.goForward(); });
+ipcMain.handle('browser:back', () => { const view = currentTabView(); if (view?.navigationHistory.canGoBack()) view.navigationHistory.goBack(); });
+ipcMain.handle('browser:forward', () => { const view = currentTabView(); if (view?.navigationHistory.canGoForward()) view.navigationHistory.goForward(); });
 ipcMain.handle('browser:reload', () => currentTabView()?.reload());
 ipcMain.handle('browser:stop', () => currentTabView()?.stop());
 ipcMain.handle('browser:find', (_event, query: string) => {
