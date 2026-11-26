@@ -3,6 +3,7 @@ import { Search, Shield, X } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import StartPage from './components/StartPage';
+import AppearancePanel from './components/AppearancePanel';
 import ManagerPanel from './components/ManagerPanel';
 import Onboarding from './components/Onboarding';
 import BrowserImportDialog from './components/BrowserImportDialog';
@@ -12,7 +13,7 @@ import type { BrowserState, TabInfo } from '../electron/preload';
 import type { SitePermissionName } from '../electron/storage';
 import type { PermissionRequest } from '../electron/preload';
 
-type Panel = 'home' | 'bookmarks' | 'history' | 'downloads' | 'extensions' | 'settings';
+type Panel = 'home' | 'bookmarks' | 'history' | 'downloads' | 'extensions' | 'settings' | 'appearance';
 
 export default function App() {
   const [state, setState] = useState<BrowserState | null>(null);
@@ -31,6 +32,7 @@ export default function App() {
   const activeTab = useMemo<TabInfo | null>(() => tabs.find((tab) => tab.id === state?.activeTabId) ?? null, [tabs, state?.activeTabId]);
   const isBookmarked = !!activeTab?.url && !!state?.bookmarks.some((bookmark) => bookmark.url === activeTab.url);
   const performanceMode = state?.settings.performanceModeEnabled ?? false;
+  const incognitoMode = !!activeTab?.incognito;
   const onboardingVisible = !!state && !state.settings.onboardingCompleted;
   const showWebPage = !onboardingVisible && (panel === 'home' || performanceMode) && !!activeTab && !activeTab.isNewTab;
 
@@ -38,6 +40,10 @@ export default function App() {
     void window.umbrella.getState().then(setState);
     return window.umbrella.onState(setState);
   }, []);
+
+  useEffect(() => {
+    if (state) setSidebarExpanded(!state.settings.sidebarCompact);
+  }, [state?.settings.sidebarCompact]);
 
   useEffect(() => {
     setAddress(activeTab && !activeTab.isNewTab ? activeTab.url : '');
@@ -52,11 +58,12 @@ export default function App() {
   useEffect(() => {
     const offFocus = window.umbrella.onFocusAddress(() => window.dispatchEvent(new Event('umbrella:focus-address')));
     const offFind = window.umbrella.onFindRequest(() => setFindOpen(true));
+    const offDownloads = window.umbrella.onOpenDownloadsHistory(() => setPanel('downloads'));
     const offPermission = window.umbrella.onPermissionRequest((request) => setPermissionRequest(request));
     const offPermissionCancelled = window.umbrella.onPermissionCancelled((ids) => {
       setPermissionRequest((current) => current && ids.includes(current.id) ? null : current);
     });
-    return () => { offFocus(); offFind(); offPermission(); offPermissionCancelled(); };
+    return () => { offFocus(); offFind(); offDownloads(); offPermission(); offPermissionCancelled(); };
   }, []);
 
   useEffect(() => {
@@ -72,9 +79,10 @@ export default function App() {
     const rect = host.getBoundingClientRect();
     window.umbrella.setContentBounds({
       x: rect.left, y: rect.top, width: rect.width, height: rect.height,
-      visible: showWebPage && rect.width > 0 && rect.height > 0
+      visible: showWebPage && rect.width > 0 && rect.height > 0,
+      rounded: state?.settings.pageCornersRounded ?? false
     });
-  }, [showWebPage, activeTab?.id, panel]);
+  }, [showWebPage, activeTab?.id, panel, state?.settings.pageCornersRounded]);
 
   useEffect(() => {
     updateBounds();
@@ -96,6 +104,7 @@ export default function App() {
     void window.umbrella.navigate(url);
   };
   const newTab = () => { setPanel('home'); void window.umbrella.newTab(); };
+  const newPrivateTab = () => { setPanel('home'); void window.umbrella.newTab(undefined, true); };
   const switchTab = (id: string) => { setPanel('home'); void window.umbrella.switchTab(id); };
   const changePanel = (next: Panel) => setPanel(next);
   const updateSettings = (patch: Partial<BrowserState['settings']>) => { void window.umbrella.updateSettings(patch); };
@@ -118,9 +127,29 @@ export default function App() {
     else void window.umbrella.stopFind();
   };
   const closeFind = () => { setFindOpen(false); setFindQuery(''); void window.umbrella.stopFind(); };
+  const renderStartPage = (preview = false) => {
+    if (!state) return null;
+    return <StartPage
+      bookmarks={state.bookmarks}
+      wallpaperUrl={state.wallpaperUrl}
+      onSearch={navigate}
+      onOpen={openUrl}
+      onAddBookmark={(title, url) => window.umbrella.addBookmark(title, url)}
+      onUpdateBookmark={(id, title, url) => window.umbrella.updateBookmark(id, title, url)}
+      onRemoveBookmark={(id) => window.umbrella.removeBookmark(id)}
+      onSettings={() => setPanel('appearance')}
+      clockVisible={state.settings.startPageClockVisible}
+      clockPosition={state.settings.startPageClockPosition}
+      clockColor={state.settings.startPageClockColor}
+      shortcutsVisible={state.settings.startPageShortcutsVisible}
+      footerVisible={state.settings.startPageFooterVisible}
+      footerText={state.settings.startPageFooterText}
+      preview={preview}
+    />;
+  };
 
   return (
-    <div className={`app-shell ${sidebarExpanded ? 'sidebar-wide' : ''} ${performanceMode ? 'performance-mode' : ''}`}>
+    <div className={`app-shell ${sidebarExpanded ? 'sidebar-wide' : ''} ${performanceMode ? 'performance-mode' : ''} ${incognitoMode ? 'incognito-mode' : ''}`}>
       <Toolbar
         activeTab={activeTab}
         extensions={state?.extensions ?? []}
@@ -133,14 +162,20 @@ export default function App() {
         onStop={() => void window.umbrella.stop()}
         onBookmark={() => void window.umbrella.toggleBookmark()}
         isBookmarked={isBookmarked}
-        onDownloads={() => setPanel('downloads')}
+        onNewPrivateTab={newPrivateTab}
         onExtensions={() => setPanel('extensions')}
         onSettings={() => setPanel('settings')}
-        onToggleSidebar={() => setSidebarExpanded((value) => !value)}
+        onToggleSidebar={() => setSidebarExpanded((value) => {
+          const expanded = !value;
+          updateSettings({ sidebarCompact: !expanded });
+          return expanded;
+        })}
         performanceMode={performanceMode}
+        sitePrivacy={state?.sitePrivacy ?? null}
         sitePrivacyAvailable={!!state?.sitePrivacy.origin}
         privacyOpen={privacyOpen}
         onTogglePrivacy={() => setPrivacyOpen((open) => !open)}
+        toolbarItems={state?.settings.toolbarItems}
         onTogglePerformanceMode={() => {
           if (state) updateSettings({ performanceModeEnabled: !performanceMode });
         }}
@@ -148,11 +183,17 @@ export default function App() {
 
       <div className="browser-body">
         <Sidebar
+          version={state?.version ?? ''}
           tabs={tabs}
           activeTabId={state?.activeTabId ?? ''}
           panel={panel}
           expanded={performanceMode || sidebarExpanded}
-          onToggleExpanded={() => setSidebarExpanded((value) => !value)}
+          visibleItems={state?.settings.sidebarItems}
+          onToggleExpanded={() => setSidebarExpanded((value) => {
+            const expanded = !value;
+            updateSettings({ sidebarCompact: !expanded });
+            return expanded;
+          })}
           onNewTab={newTab}
           onSwitchTab={switchTab}
           onCloseTab={(id) => void window.umbrella.closeTab(id)}
@@ -163,17 +204,18 @@ export default function App() {
 
         <section className="main-shell">
           <div className={`workspace ${panel !== 'home' ? 'workspace-panel' : ''}`}>
-            {!performanceMode && panel === 'home' && activeTab?.isNewTab && state && <StartPage
-              bookmarks={state.bookmarks}
-              wallpaperUrl={state.wallpaperUrl}
-              onSearch={navigate}
-              onOpen={openUrl}
-              onAddBookmark={(title, url) => window.umbrella.addBookmark(title, url)}
-              onUpdateBookmark={(id, title, url) => window.umbrella.updateBookmark(id, title, url)}
-              onRemoveBookmark={(id) => window.umbrella.removeBookmark(id)}
-              onSettings={() => setPanel('settings')}
-            />}
-            {!performanceMode && panel !== 'home' && state && <ManagerPanel
+            {!performanceMode && panel === 'home' && activeTab?.isNewTab && renderStartPage()}
+            {!performanceMode && panel === 'appearance' && state && <div className="appearance-layout">
+              <div className="appearance-preview">{renderStartPage(true)}</div>
+              <AppearancePanel
+                state={state}
+                onSettings={updateSettings}
+                onChooseWallpaper={() => window.umbrella.chooseWallpaper()}
+                onResetWallpaper={() => window.umbrella.resetWallpaper()}
+                onClose={() => setPanel('home')}
+              />
+            </div>}
+            {!performanceMode && panel !== 'home' && panel !== 'appearance' && state && <ManagerPanel
               panel={panel}
               state={state}
               onOpen={openUrl}
@@ -184,7 +226,9 @@ export default function App() {
               onAddExtension={() => window.umbrella.addExtension()}
               onSetExtensionEnabled={(id, enabled) => window.umbrella.setExtensionEnabled(id, enabled)}
               onRemoveExtension={(id) => window.umbrella.removeExtension(id)}
-        onOpenBrowserImport={() => { setImportFeedback(''); setBrowserImportOpen(true); }}
+              onOpenBrowserImport={() => { setImportFeedback(''); setBrowserImportOpen(true); }}
+              onOpenAppearance={() => setPanel('appearance')}
+              onOpenExtensions={() => setPanel('extensions')}
             />}
             <div ref={pageHostRef} className={`web-page-host ${showWebPage ? 'visible' : 'hidden'}`} aria-hidden="true" />
             {privacyOpen && state?.sitePrivacy.origin && <SitePrivacyPanel

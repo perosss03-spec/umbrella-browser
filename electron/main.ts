@@ -15,15 +15,23 @@ import { parseBookmarkHtml } from './bookmarks';
 import { shouldSuspendTab } from './tab-suspension';
 import { DiscordPresenceController, isValidDiscordClientId } from './discord-presence';
 import { getDatabase, getDataDirectory, loadDatabase, saveDatabase, type Bookmark, type PersistedTab, type SitePermissionName } from './storage';
-import { isSafeWebUrl, resolveNavigation } from './navigation';
+import { isGoogleOAuthPopupUrl, isSafeWebUrl, resolveNavigation } from './navigation';
 import type { AppSettings } from './storage';
 import { discoverBrowserProfiles, importBrowserProfile, registerCustomBrowserProfile } from './browser-import';
 import { PendingPermissionRegistry } from './pending-permissions';
 import { buildBrowserContextMenu, type BrowserContextMenuAction } from './context-menu';
+import {
+  sanitizeHexColor,
+  sanitizeSidebarItemVisibility,
+  sanitizeStartPageClockPosition,
+  sanitizeStartPageFooterText,
+  sanitizeToolbarItemVisibility
+} from './customization-settings';
 import { getTabNavigationState } from './tab-navigation-state';
 import { autoUpdater } from 'electron-updater';
 import { UpdateController, type AutoUpdaterLike } from './updates';
 import { buildReleaseApiUrls } from './update-assets';
+import type { ToolbarPopupKind } from './preload';
 
 app.setAppUserModelId('com.umbrella.browser');
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -82,26 +90,30 @@ type DownloadRecord = {
   url: string;
   receivedBytes: number;
   totalBytes: number;
+  remainingSeconds: number | null;
   state: string;
   paused: boolean;
   savePath: string;
 };
-type ContentBounds = { x: number; y: number; width: number; height: number; visible: boolean };
+type ContentBounds = { x: number; y: number; width: number; height: number; visible: boolean; rounded: boolean };
 
 let mainWindow: BrowserWindow | null = null;
 let isAppQuitting = false;
 let isMainWindowClosing = false;
 let extensionPopupWindow: BrowserWindow | null = null;
 let extensionPopupId = '';
+let toolbarPopupWindow: BrowserWindow | null = null;
+let toolbarPopupKind: ToolbarPopupKind | null = null;
 let database = getDatabase();
 let tabs: Tab[] = [];
 let activeTabId = '';
-let contentBounds: ContentBounds = { x: 58, y: 48, width: 800, height: 600, visible: false };
+let contentBounds: ContentBounds = { x: 58, y: 48, width: 800, height: 600, visible: false, rounded: false };
 const recentlyClosed: PersistedTab[] = [];
 const downloads = new Map<string, { record: DownloadRecord; item: DownloadItem }>();
 const wiredPartitions = new Set<string>();
 const activeSessions = new Map<string, Session>();
 const blockedRequestsByOrigin = new Map<string, Map<string, number>>();
+const blockedRequestCountsByOrigin = new Map<string, number>();
 let blockedRequestUpdateTimer: NodeJS.Timeout | null = null;
 let tabSuspensionTimer: NodeJS.Timeout | null = null;
 let adBlocker: ElectronBlocker | null = null;
@@ -149,6 +161,7 @@ function getSitePrivacyState() {
     permissions: origin ? { ...database.settings.sitePermissions[origin] } : {},
     adBlockEnabled: database.settings.adBlockEnabled,
     adBlockExcluded: origin ? database.settings.adBlockExcludedSites.includes(origin) : false,
+    blockedRequestCount: origin ? blockedRequestCountsByOrigin.get(origin) ?? 0 : 0,
     blockedTrackers: trackers
       ? [...trackers.entries()].map(([hostname, count]) => ({ hostname, count })).sort((left, right) => right.count - left.count).slice(0, 20)
       : []
@@ -171,6 +184,7 @@ function recordBlockedRequest(origin: string, requestUrl: string) {
   let hostname = '';
   try { hostname = new URL(requestUrl).hostname; } catch { return; }
   if (!hostname) return;
+  blockedRequestCountsByOrigin.set(origin, (blockedRequestCountsByOrigin.get(origin) ?? 0) + 1);
   let trackers = blockedRequestsByOrigin.get(origin);
   if (!trackers) {
     trackers = new Map();
@@ -183,7 +197,10 @@ function recordBlockedRequest(origin: string, requestUrl: string) {
   }
   if (blockedRequestsByOrigin.size > 100) {
     const leastRecentOrigin = blockedRequestsByOrigin.keys().next().value;
-    if (leastRecentOrigin && leastRecentOrigin !== origin) blockedRequestsByOrigin.delete(leastRecentOrigin);
+    if (leastRecentOrigin && leastRecentOrigin !== origin) {
+      blockedRequestsByOrigin.delete(leastRecentOrigin);
+      blockedRequestCountsByOrigin.delete(leastRecentOrigin);
+    }
   }
   if (blockedRequestUpdateTimer) return;
   blockedRequestUpdateTimer = setTimeout(() => {
@@ -350,9 +367,9 @@ async function restoreInstalledExtensions() {
   if (changed) saveDatabase();
 }
 
-function emitState() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('browser:state', {
+function getBrowserState() {
+  return {
+    version: app.getVersion(),
     tabs: tabs.map(toTabInfo), activeTabId,
     bookmarks: database.bookmarks,
     history: database.history.slice(0, 500),
@@ -363,7 +380,13 @@ function emitState() {
     adBlockReady,
     adBlockError,
     sitePrivacy: getSitePrivacyState()
-  });
+  };
+}
+
+function emitState() {
+  const state = getBrowserState();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:state', state);
+  if (toolbarPopupWindow && !toolbarPopupWindow.isDestroyed()) toolbarPopupWindow.webContents.send('browser:state', state);
 }
 
 function persistSession() {
@@ -385,6 +408,7 @@ function applyContentViewVisibility() {
   }
   const current = activeTab();
   if (current?.view && tabWebContents(current) && contentBounds.visible && mainWindow && !mainWindow.isMinimized()) {
+    current.view.setBorderRadius(contentBounds.rounded ? 10 : 0);
     current.view.setBounds({
       x: Math.max(0, Math.round(contentBounds.x)),
       y: Math.max(0, Math.round(contentBounds.y)),
@@ -411,6 +435,7 @@ function handleDownload(partitionSession: Session, item: DownloadItem, isPrivate
     url: item.getURL(),
     receivedBytes: item.getReceivedBytes(),
     totalBytes: item.getTotalBytes(),
+    remainingSeconds: null,
     state: 'progressing',
     paused: false,
     savePath: item.getSavePath()
@@ -433,12 +458,32 @@ function handleDownload(partitionSession: Session, item: DownloadItem, isPrivate
     }).catch(() => item.cancel());
   }
 
+  let lastSampleAt = Date.now();
+  let lastSampleBytes = record.receivedBytes;
+  let smoothedBytesPerSecond = 0;
   item.on('updated', (_event, state) => {
+    const now = Date.now();
     record.receivedBytes = item.getReceivedBytes();
     record.totalBytes = item.getTotalBytes();
     record.paused = item.isPaused();
     record.savePath = item.getSavePath();
     record.state = state;
+    const elapsedSeconds = (now - lastSampleAt) / 1000;
+    const bytesSinceSample = record.receivedBytes - lastSampleBytes;
+    if (elapsedSeconds > 0 && bytesSinceSample > 0) {
+      const sampleSpeed = bytesSinceSample / elapsedSeconds;
+      smoothedBytesPerSecond = smoothedBytesPerSecond
+        ? smoothedBytesPerSecond * 0.7 + sampleSpeed * 0.3
+        : sampleSpeed;
+    }
+    lastSampleAt = now;
+    lastSampleBytes = record.receivedBytes;
+    record.remainingSeconds = state === 'progressing'
+      && !record.paused
+      && record.totalBytes > record.receivedBytes
+      && smoothedBytesPerSecond > 0
+      ? Math.ceil((record.totalBytes - record.receivedBytes) / smoothedBytesPerSecond)
+      : null;
     emitState();
   });
   item.once('done', (_event, state) => {
@@ -447,6 +492,7 @@ function handleDownload(partitionSession: Session, item: DownloadItem, isPrivate
     record.paused = false;
     record.savePath = item.getSavePath();
     record.state = state;
+    record.remainingSeconds = null;
     emitState();
     if (state === 'completed' && !isPrivate && database.settings.downloadNotifications && Notification.isSupported()) {
       new Notification({ title: 'Download completato', body: record.filename }).show();
@@ -494,6 +540,7 @@ function configureSession(partition: string, isPrivate: boolean) {
 
 function createPageView(tab: Tab): WebContentsView | null {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const ownerWindow = mainWindow;
   if (tabWebContents(tab)) return tab.view;
   if (tab.view) {
     try { mainWindow.contentView.removeChildView(tab.view); } catch { /* already detached */ }
@@ -518,6 +565,21 @@ function createPageView(tab: Tab): WebContentsView | null {
   const contents = view.webContents;
   contents.setBackgroundThrottling(true);
   contents.setWindowOpenHandler(({ url }) => {
+    if (isGoogleOAuthPopupUrl(url)) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: ownerWindow,
+          width: 900,
+          height: 700,
+          minWidth: 480,
+          minHeight: 520,
+          autoHideMenuBar: true,
+          title: 'Accedi con Google',
+          webPreferences: { session: ses }
+        }
+      };
+    }
     if (isSafeWebUrl(url)) createTab(url, tab.incognito);
     else if (url.startsWith('mailto:')) void shell.openExternal(url);
     return { action: 'deny' };
@@ -825,6 +887,7 @@ function createWindow() {
     persistSession();
   });
   mainWindow.on('closed', () => {
+    if (toolbarPopupWindow && !toolbarPopupWindow.isDestroyed()) toolbarPopupWindow.close();
     denyPendingPermissions(pendingPermissionRequests.drain());
     mainWindow = null;
   });
@@ -853,17 +916,105 @@ function currentTabView() {
   return tab ? tabWebContents(tab) : null;
 }
 
-ipcMain.handle('browser:get-state', () => ({
-  tabs: tabs.map(toTabInfo), activeTabId,
-  bookmarks: database.bookmarks,
-  history: database.history.slice(0, 500),
-  downloads: currentDownloads(), settings: database.settings,
-  wallpaperUrl: getWallpaperUrl(), extensions: getExtensionsInfo(), adBlockReady, adBlockError,
-  sitePrivacy: getSitePrivacyState()
-}));
+ipcMain.handle('browser:get-state', () => getBrowserState());
+ipcMain.handle('toolbar-popup:open', async (
+  event,
+  payload: { kind?: ToolbarPopupKind; bounds?: { right?: number; bottom?: number } }
+) => {
+  const kind = payload?.kind;
+  const { right, bottom } = payload?.bounds ?? {};
+  if (
+    event.sender !== mainWindow?.webContents ||
+    (kind !== 'downloads' && kind !== 'adblock') ||
+    typeof right !== 'number' || !Number.isFinite(right) ||
+    typeof bottom !== 'number' || !Number.isFinite(bottom) ||
+    !mainWindow || mainWindow.isDestroyed()
+  ) return false;
+
+  if (toolbarPopupWindow && !toolbarPopupWindow.isDestroyed()) {
+    if (toolbarPopupKind === kind) {
+      toolbarPopupWindow.close();
+      return true;
+    }
+    toolbarPopupWindow.close();
+  }
+
+  const parentBounds = mainWindow.getBounds();
+  const workArea = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+  const width = Math.min(kind === 'downloads' ? 360 : 300, workArea.width);
+  const height = Math.min(kind === 'downloads' ? 340 : 280, workArea.height);
+  const requestedX = parentBounds.x + right - width;
+  const requestedY = parentBounds.y + bottom + 8;
+  const x = Math.round(Math.max(workArea.x, Math.min(requestedX, workArea.x + workArea.width - width)));
+  const y = Math.round(Math.max(workArea.y, Math.min(requestedY, workArea.y + workArea.height - height)));
+  const popup = new BrowserWindow({
+    parent: mainWindow,
+    x, y, width, height,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#171c29',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+  popup.setMenu(null);
+  toolbarPopupWindow = popup;
+  toolbarPopupKind = kind;
+  popup.on('closed', () => {
+    if (toolbarPopupWindow === popup) {
+      toolbarPopupWindow = null;
+      toolbarPopupKind = null;
+    }
+  });
+  popup.on('blur', () => popup.close());
+
+  try {
+    if (process.env.ELECTRON_RENDERER_URL) {
+      const popupUrl = new URL(process.env.ELECTRON_RENDERER_URL);
+      popupUrl.searchParams.set('popup', 'toolbar');
+      popupUrl.searchParams.set('type', kind);
+      await popup.loadURL(popupUrl.href);
+    } else {
+      await popup.loadFile(join(__dirname, '../renderer/index.html'), {
+        query: { popup: 'toolbar', type: kind }
+      });
+    }
+    if (!popup.isDestroyed()) {
+      popup.setPosition(x, y);
+      popup.show();
+    }
+    return true;
+  } catch (error) {
+    console.error('[Umbrella] Could not load toolbar popup:', error);
+    if (!popup.isDestroyed()) popup.close();
+    return false;
+  }
+});
+ipcMain.handle('toolbar-popup:close', (event) => {
+  if (event.sender !== toolbarPopupWindow?.webContents || !toolbarPopupWindow || toolbarPopupWindow.isDestroyed()) return false;
+  toolbarPopupWindow.close();
+  return true;
+});
+ipcMain.handle('downloads:open-history', (event) => {
+  if (event.sender !== toolbarPopupWindow?.webContents || !mainWindow || mainWindow.isDestroyed()) return false;
+  if (toolbarPopupWindow && !toolbarPopupWindow.isDestroyed()) toolbarPopupWindow.close();
+  mainWindow.webContents.send('ui:open-downloads');
+  mainWindow.show();
+  mainWindow.focus();
+  return true;
+});
 ipcMain.on('browser:set-content-bounds', (_event, bounds: ContentBounds) => {
   if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) return;
-  contentBounds = { ...bounds, visible: !!bounds.visible };
+  contentBounds = { ...bounds, visible: !!bounds.visible, rounded: !!bounds.rounded };
   applyContentViewVisibility();
 });
 ipcMain.handle('permissions:respond', (_event, payload: { id?: string; allowed?: boolean }) => {
@@ -920,6 +1071,7 @@ ipcMain.handle('tabs:context-menu', (_event, payload: { id: string; x: number; y
   const id = payload.id;
   const menu = Menu.buildFromTemplate([
     { label: 'Nuova scheda', click: () => createTab() },
+    { label: 'Nuova scheda in incognito', click: () => createTab(undefined, true) },
     { type: 'separator' },
     { label: 'Duplica scheda', click: () => { const tab = tabs.find((item) => item.id === id); if (tab) tab.url ? createTab(tab.url, tab.incognito) : createTab(undefined, tab.incognito); } },
     { label: 'Chiudi scheda', click: () => closeTab(id) },
@@ -1020,6 +1172,26 @@ ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) =>
     }
   }
   if (typeof patch.performanceModeEnabled === 'boolean') allowed.performanceModeEnabled = patch.performanceModeEnabled;
+  if (typeof patch.startPageClockVisible === 'boolean') allowed.startPageClockVisible = patch.startPageClockVisible;
+  if (typeof patch.startPageClockPosition === 'string') {
+    allowed.startPageClockPosition = sanitizeStartPageClockPosition(patch.startPageClockPosition, database.settings.startPageClockPosition);
+  }
+  if (typeof patch.startPageClockColor === 'string') {
+    allowed.startPageClockColor = sanitizeHexColor(patch.startPageClockColor, database.settings.startPageClockColor);
+  }
+  if (typeof patch.startPageShortcutsVisible === 'boolean') allowed.startPageShortcutsVisible = patch.startPageShortcutsVisible;
+  if (typeof patch.startPageFooterVisible === 'boolean') allowed.startPageFooterVisible = patch.startPageFooterVisible;
+  if (typeof patch.startPageFooterText === 'string') {
+    allowed.startPageFooterText = sanitizeStartPageFooterText(patch.startPageFooterText, database.settings.startPageFooterText);
+  }
+  if (typeof patch.sidebarCompact === 'boolean') allowed.sidebarCompact = patch.sidebarCompact;
+  if (typeof patch.pageCornersRounded === 'boolean') allowed.pageCornersRounded = patch.pageCornersRounded;
+  if (patch.sidebarItems !== undefined) {
+    allowed.sidebarItems = sanitizeSidebarItemVisibility(patch.sidebarItems, database.settings.sidebarItems);
+  }
+  if (patch.toolbarItems !== undefined) {
+    allowed.toolbarItems = sanitizeToolbarItemVisibility(patch.toolbarItems, database.settings.toolbarItems);
+  }
   if (typeof patch.tabSuspendAfterMinutes === 'number' && [0, 5, 15, 30, 60].includes(patch.tabSuspendAfterMinutes)) {
     allowed.tabSuspendAfterMinutes = patch.tabSuspendAfterMinutes;
   }

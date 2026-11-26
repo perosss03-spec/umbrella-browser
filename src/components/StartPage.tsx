@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react';
 import {
   ArrowUpRight, BookmarkPlus, Code2, Mail, Pencil,
-  Play, Plus, Search, Send, Settings2, Trash2, X
+  Play, Plus, Search, Send, Trash2, X
 } from 'lucide-react';
 import type { Bookmark } from '../../electron/storage';
+import type { StartPageClockPosition } from '../../electron/storage';
 
 type Props = {
   bookmarks: Bookmark[];
@@ -14,6 +15,13 @@ type Props = {
   onRemoveBookmark: (id: string) => Promise<void>;
   onSettings: () => void;
   wallpaperUrl: string | null;
+  clockVisible: boolean;
+  clockPosition: StartPageClockPosition;
+  clockColor: string;
+  shortcutsVisible: boolean;
+  footerVisible: boolean;
+  footerText: string;
+  preview?: boolean;
 };
 
 const defaults = [
@@ -23,7 +31,7 @@ const defaults = [
   { title: 'Gmail', url: 'https://mail.google.com/', icon: Mail, tone: 'gmail' }
 ];
 
-function Clock() {
+function Clock({ color }: { color: string }) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -40,7 +48,7 @@ function Clock() {
     <>
       <div className="clock-greeting">{greeting}</div>
       <div className="clock-face" aria-label={`Sono le ${time}`}>
-        <span className="clock-time">{time}</span>
+        <span className="clock-time" style={{ color }}>{time}</span>
         <span className="clock-seconds">{seconds}</span>
       </div>
       <div className="clock-date">{date}</div>
@@ -48,7 +56,7 @@ function Clock() {
   );
 }
 
-export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, onUpdateBookmark, onRemoveBookmark, onSettings, wallpaperUrl }: Props) {
+export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, onUpdateBookmark, onRemoveBookmark, onSettings, wallpaperUrl, clockVisible, clockPosition, clockColor, shortcutsVisible, footerVisible, footerText, preview = false }: Props) {
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -137,12 +145,12 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
   };
 
   return (
-    <main className="start-page">
+    <main className={`start-page ${preview ? 'start-page-preview' : ''}`}>
       <div className={`start-backdrop ${wallpaperUrl ? 'has-custom-wallpaper' : ''}`} style={wallpaperUrl ? { backgroundImage: `url("${wallpaperUrl}")` } : undefined} aria-hidden="true" />
       <div className="start-atmosphere" aria-hidden="true" />
 
       <div className="start-content">
-        <Clock />
+        {clockVisible && <div className={`start-clock clock-position-${clockPosition}`}><Clock color={clockColor} /></div>}
 
         <form className="home-search" onSubmit={(event) => { event.preventDefault(); onSearch(query); }}>
           <Search size={19} strokeWidth={1.8} />
@@ -156,7 +164,7 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
           <button type="submit" aria-label="Cerca"><ArrowUpRight size={18} /></button>
         </form>
 
-        <section className="shortcuts-section" aria-label="Accessi rapidi">
+        {shortcutsVisible && <section className="shortcuts-section" aria-label="Accessi rapidi">
           <div className="shortcut-grid">
             {shortcuts.length > 0 ? shortcuts.map((item) => (
               <button
@@ -182,17 +190,17 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
               <span className="shortcut-title">Aggiungi</span>
             </button>}
           </div>
-        </section>
+        </section>}
       </div>
 
-      <div className="start-footer">
-        <span>“Meno rumore. Più spazio alle cose che contano.”</span>
+      {footerVisible && <div className="start-footer">
+        {footerText && <span>“{footerText}”</span>}
         <small>— UMBRELLA</small>
-      </div>
+      </div>}
 
-      <button className="start-settings-button" onClick={onSettings} aria-label="Apri impostazioni" title="Personalizza Umbrella">
-        <Settings2 size={19} strokeWidth={1.8} />
-      </button>
+      {!preview && <button className="start-settings-button" onClick={onSettings} aria-label="Apri personalizzazione" title="Personalizza Umbrella">
+        <Pencil size={19} strokeWidth={1.8} />
+      </button>}
 
       {contextMenu && <div
         className="shortcut-context-backdrop"

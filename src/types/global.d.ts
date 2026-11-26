@@ -1,4 +1,4 @@
-import type { BookmarkImportResult, BrowserImportResult, BrowserState, DefaultBrowserResult, ImportBrowserInfo, PermissionRequest } from '../../electron/preload';
+import type { BookmarkImportResult, BrowserImportResult, BrowserState, DefaultBrowserResult, ImportBrowserInfo, PermissionRequest, ToolbarPopupKind } from '../../electron/preload';
 import type { AppSettings, SitePermissionName } from '../../electron/storage';
 import type { UpdateState } from '../../electron/updates';
 
@@ -6,6 +6,10 @@ declare global {
   interface Window {
     umbrella: {
       getState: () => Promise<BrowserState>;
+      openToolbarPopup: (kind: ToolbarPopupKind, bounds: { right: number; bottom: number }) => Promise<boolean>;
+      closeToolbarPopup: () => Promise<boolean>;
+      openDownloadsHistory: () => Promise<boolean>;
+      onOpenDownloadsHistory: (callback: () => void) => () => void;
       onState: (callback: (state: BrowserState) => void) => () => void;
       onFocusAddress: (callback: () => void) => () => void;
       onFindRequest: (callback: () => void) => () => void;
@@ -14,7 +18,7 @@ declare global {
       respondToPermission: (id: string, allowed: boolean) => Promise<boolean>;
       setSitePermission: (origin: string, permission: SitePermissionName, allowed: boolean | null) => Promise<boolean>;
       setSiteAdBlockExcluded: (origin: string, excluded: boolean) => Promise<boolean>;
-      setContentBounds: (bounds: { x: number; y: number; width: number; height: number; visible: boolean }) => void;
+      setContentBounds: (bounds: { x: number; y: number; width: number; height: number; visible: boolean; rounded: boolean }) => void;
       navigate: (input: string, tabId?: string) => Promise<boolean>;
       newTab: (url?: string, incognito?: boolean) => Promise<string | null>;
       switchTab: (id: string) => Promise<void>;

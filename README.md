@@ -1,6 +1,6 @@
 # UMBRELLA
 
-**Umbrella 0.4.5** è un browser desktop Windows basato su Electron, Chromium, React e TypeScript. Include modalità performance, controlli privacy per sito e sospensione delle schede inattive, oltre alla Discord Activity e alle funzionalità di primo avvio e trasferimento dati browser.
+**Umbrella 0.4.6** è un browser desktop Windows basato su Electron, Chromium, React e TypeScript. Include modalità performance, controlli privacy per sito e sospensione delle schede inattive, oltre alla Discord Activity e alle funzionalità di primo avvio e trasferimento dati browser.
 
 ## Download
 
@@ -109,6 +109,8 @@ La presenza mostra solo che stai navigando con Umbrella. Non include URL, titoli
 
 L'icona a sinistra della barra degli indirizzi apre i controlli privacy per l'origine HTTP/HTTPS corrente. Da qui puoi vedere i domini delle richieste bloccate (conteggio temporaneo, locale), escludere il sito dall'ad blocker e impostare i permessi di fotocamera/microfono, posizione, notifiche, lettura appunti e MIDI su **Chiedi**, **Consenti** o **Blocca**. Le modifiche ai filtri possono richiedere il ricaricamento della pagina. In modalità privata questi controlli per sito non sono disponibili e le richieste di permesso vengono negate.
 
+Il pulsante a forma di scudo nella toolbar apre un riepilogo delle richieste pubblicitarie e dei tracker bloccati per il sito corrente e permette di attivare o disattivare la protezione solo per quel sito. Il conteggio è temporaneo e locale. La sua visibilità si regola in **Personalizzazione → Barra degli strumenti**.
+
 In **Impostazioni → Esperienza** scegli dopo quanto tempo sospendere le schede inattive (mai, 5, 15, 30 o 60 minuti). L'impostazione predefinita è 30 minuti. Le schede attive, private, in caricamento o con audio non vengono sospese. La sospensione scarica la pagina dalla memoria e la ricarica quando la riapri: eventuali dati non salvati nei moduli possono andare persi.
 
 ## Altre funzionalità presenti
@@ -116,14 +118,15 @@ In **Impostazioni → Esperienza** scegli dopo quanto tempo sospendere le schede
 - Toolbar compatta e sidebar verticale comprimibile.
 - Schede Chromium reali tramite `WebContentsView`, favicon e menu schede nativo.
 - Nuova scheda con orologio, ricerca DuckDuckGo, scorciatoie e wallpaper personalizzabile.
+- !bang diretti per YouTube, Google, Wikipedia, Reddit, GitHub, Amazon, Bing e Maps; i bang non riconosciuti vengono inoltrati a DuckDuckGo.
 - Preferiti e cronologia locali.
-- Download manager.
-- Sessioni private separate.
+- Download manager con menu dei download recenti e stima del tempo rimanente.
+- Schede private apribili dal pulsante Incognito nella toolbar o dal menu contestuale delle schede; usano sessioni separate e non vengono salvate in cronologia/sessione.
 - Estensioni da cartelle già estratte Manifest V3, con i limiti delle API Electron.
 - Ad blocker Ghostery con filtri pubblicitari e anti-tracking.
 - Discord Rich Presence/Activity facoltativa, con logo Umbrella e Application ID configurabile.
 - Modalità performance attivabile dalla toolbar: mantiene schede, barra indirizzi ed estensioni, rimuove gli elementi decorativi della nuova scheda e disattiva animazioni/transizioni dell'interfaccia.
-- Privacy per sito: permessi salvabili, eccezioni dell'ad blocker e conteggio locale dei domini bloccati.
+- Privacy per sito: permessi salvabili, eccezioni dell'ad blocker e conteggio locale delle richieste bloccate.
 - Sospensione automatica configurabile delle schede inattive per liberare memoria.
 - Tema chiaro/scuro/sistema.
 - Backup locale dei dati e persistenza separata dai file dell'applicazione.

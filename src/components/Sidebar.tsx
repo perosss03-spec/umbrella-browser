@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import {
-  Bookmark, CirclePlus, Clock3, CloudDownload, PanelLeftClose, PanelLeftOpen,
+  Bookmark, CirclePlus, Clock3, CloudDownload, EyeOff, PanelLeftClose, PanelLeftOpen,
   Pause, Search, Settings2, Volume2, X
 } from 'lucide-react';
 import type { TabInfo } from '../../electron/preload';
+import type { SidebarItemVisibility } from '../../electron/storage';
 
-type Panel = 'home' | 'bookmarks' | 'history' | 'downloads' | 'extensions' | 'settings';
-type SidebarPanel = Exclude<Panel, 'extensions'>;
+type Panel = 'home' | 'bookmarks' | 'history' | 'downloads' | 'extensions' | 'settings' | 'appearance';
+type SidebarPanel = Exclude<Panel, 'extensions' | 'appearance'>;
 type Props = {
+  version: string;
   tabs: TabInfo[];
   activeTabId: string;
   panel: Panel;
   expanded: boolean;
+  visibleItems?: SidebarItemVisibility;
   onToggleExpanded: () => void;
   onNewTab: () => void;
   onSwitchTab: (id: string) => void;
@@ -30,20 +33,28 @@ function TabFavicon({ tab }: { tab: TabInfo }) {
     return <img className="tab-favicon-image" src={tab.faviconUrl} alt="" onError={() => setFailed(true)} />;
   }
   if (tab.isNewTab || !tab.url) {
-    return <Search size={15} strokeWidth={1.7} />;
+    return tab.incognito
+      ? <EyeOff size={15} strokeWidth={1.7} />
+      : <Search size={15} strokeWidth={1.7} />;
   }
-  return <Search size={15} strokeWidth={1.7} />;
+  return tab.incognito
+    ? <EyeOff size={15} strokeWidth={1.7} />
+    : <Search size={15} strokeWidth={1.7} />;
 }
 
 export default function Sidebar(props: Props) {
   const [dragged, setDragged] = useState<string | null>(null);
-  const { tabs, activeTabId, panel, expanded, onToggleExpanded, onNewTab, onSwitchTab, onCloseTab, onMoveTab, onTabContextMenu, onPanel } = props;
+  const { version, tabs, activeTabId, panel, expanded, visibleItems, onToggleExpanded, onNewTab, onSwitchTab, onCloseTab, onMoveTab, onTabContextMenu, onPanel } = props;
   const navItems: { id: SidebarPanel; label: string; icon: typeof Bookmark }[] = [
     { id: 'bookmarks', label: 'Preferiti', icon: Bookmark },
     { id: 'history', label: 'Cronologia', icon: Clock3 },
     { id: 'downloads', label: 'Download', icon: CloudDownload },
     { id: 'settings', label: 'Impostazioni', icon: Settings2 }
   ];
+  const isNavItemVisible = (id: SidebarPanel) => {
+    if (id === 'settings' || id === 'home') return true;
+    return visibleItems?.[id] !== false;
+  };
 
   return (
     <aside className={`sidebar ${expanded ? 'expanded' : 'collapsed'}`}>
@@ -82,22 +93,22 @@ export default function Sidebar(props: Props) {
         ))}
       </div>
 
-      <button className="new-tab-button" onClick={onNewTab} title="Nuova scheda (Ctrl+T)">
+      {visibleItems?.newTab !== false && <button className="new-tab-button" onClick={onNewTab} title="Nuova scheda (Ctrl+T)">
         <CirclePlus size={17} strokeWidth={1.8} />
         {expanded && <><span>Nuova scheda</span><kbd>Ctrl T</kbd></>}
-      </button>
+      </button>}
 
       <div className="sidebar-bottom">
         <div className="sidebar-divider" />
-        {navItems.map(({ id, label, icon: Icon }) => (
+        {navItems.filter(({ id }) => isNavItemVisible(id)).map(({ id, label, icon: Icon }) => (
           <button key={id} className={`sidebar-nav-item ${panel === id ? 'selected' : ''}`} onClick={() => onPanel(id)} title={label} aria-label={label}>
             <Icon size={17} strokeWidth={1.8} />
             {expanded && <span>{label}</span>}
           </button>
         ))}
         <div className="sidebar-footer">
-          <div className="privacy-indicator"><span className="status-dot" />{expanded && <span>Dati sul dispositivo</span>}</div>
-          {expanded && <span className="sidebar-version">UMBRELLA · 0.4.4</span>}
+          {expanded && <div className="privacy-indicator">Dati sul dispositivo</div>}
+          {expanded && version && <span className="sidebar-version">UMBRELLA · {version}</span>}
         </div>
       </div>
     </aside>

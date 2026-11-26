@@ -1,6 +1,20 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  DEFAULT_SIDEBAR_ITEM_VISIBILITY,
+  DEFAULT_START_PAGE_CLOCK_COLOR,
+  DEFAULT_START_PAGE_FOOTER_TEXT,
+  DEFAULT_TOOLBAR_ITEM_VISIBILITY,
+  sanitizeHexColor,
+  sanitizeSidebarItemVisibility,
+  sanitizeStartPageClockPosition,
+  sanitizeStartPageFooterText,
+  sanitizeToolbarItemVisibility
+} from './customization-settings';
+import type { SidebarItemVisibility, StartPageClockPosition, ToolbarItemVisibility } from './customization-settings';
+
+export type { SidebarItemVisibility, StartPageClockPosition, ToolbarItemVisibility } from './customization-settings';
 
 export type Bookmark = { id: string; title: string; url: string; createdAt: number };
 export type Visit = { id: string; title: string; url: string; visitedAt: number };
@@ -28,6 +42,16 @@ export type AppSettings = {
   sitePermissions: SitePermissionOverrides;
   adBlockExcludedSites: string[];
   tabSuspendAfterMinutes: number;
+  startPageClockVisible: boolean;
+  startPageClockPosition: StartPageClockPosition;
+  startPageClockColor: string;
+  startPageShortcutsVisible: boolean;
+  startPageFooterVisible: boolean;
+  startPageFooterText: string;
+  sidebarCompact: boolean;
+  pageCornersRounded: boolean;
+  sidebarItems: SidebarItemVisibility;
+  toolbarItems: ToolbarItemVisibility;
 };
 export type PersistedTab = { url: string; title: string };
 export type Database = {
@@ -61,7 +85,17 @@ const defaultDb = (): Database => ({
     performanceModeEnabled: false,
     sitePermissions: {},
     adBlockExcludedSites: [],
-    tabSuspendAfterMinutes: 30
+    tabSuspendAfterMinutes: 30,
+    startPageClockVisible: true,
+    startPageClockPosition: 'center',
+    startPageClockColor: DEFAULT_START_PAGE_CLOCK_COLOR,
+    startPageShortcutsVisible: true,
+    startPageFooterVisible: true,
+    startPageFooterText: DEFAULT_START_PAGE_FOOTER_TEXT,
+    sidebarCompact: true,
+    pageCornersRounded: false,
+    sidebarItems: { ...DEFAULT_SIDEBAR_ITEM_VISIBILITY },
+    toolbarItems: { ...DEFAULT_TOOLBAR_ITEM_VISIBILITY }
   },
   lastSession: [],
   extensions: []
@@ -92,6 +126,27 @@ export function loadDatabase() {
       settings.tabSuspendAfterMinutes = [0, 5, 15, 30, 60].includes(savedSettings?.tabSuspendAfterMinutes ?? 30)
         ? savedSettings?.tabSuspendAfterMinutes ?? 30
         : 30;
+      settings.startPageClockVisible = typeof savedSettings?.startPageClockVisible === 'boolean'
+        ? savedSettings.startPageClockVisible
+        : true;
+      settings.startPageClockPosition = sanitizeStartPageClockPosition(savedSettings?.startPageClockPosition);
+      settings.startPageClockColor = sanitizeHexColor(savedSettings?.startPageClockColor, DEFAULT_START_PAGE_CLOCK_COLOR);
+      settings.startPageShortcutsVisible = typeof savedSettings?.startPageShortcutsVisible === 'boolean'
+        ? savedSettings.startPageShortcutsVisible
+        : true;
+      settings.startPageFooterVisible = typeof savedSettings?.startPageFooterVisible === 'boolean'
+        ? savedSettings.startPageFooterVisible
+        : true;
+      settings.startPageFooterText = sanitizeStartPageFooterText(savedSettings?.startPageFooterText);
+      settings.sidebarCompact = typeof savedSettings?.sidebarCompact === 'boolean'
+        ? savedSettings.sidebarCompact
+        : true;
+      const savedPageCornersRounded = (savedSettings as (Partial<AppSettings> & { sidebarRounded?: unknown }) | undefined)?.sidebarRounded;
+      settings.pageCornersRounded = typeof savedSettings?.pageCornersRounded === 'boolean'
+        ? savedSettings.pageCornersRounded
+        : typeof savedPageCornersRounded === 'boolean' ? savedPageCornersRounded : false;
+      settings.sidebarItems = sanitizeSidebarItemVisibility(savedSettings?.sidebarItems);
+      settings.toolbarItems = sanitizeToolbarItemVisibility(savedSettings?.toolbarItems);
       if ((parsed.onboardingRevision ?? 0) < ONBOARDING_REVISION) {
         settings.onboardingCompleted = false;
       }

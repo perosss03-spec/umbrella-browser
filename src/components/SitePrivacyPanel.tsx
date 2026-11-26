@@ -21,7 +21,7 @@ const permissionNames = Object.keys(permissionLabels) as SitePermissionName[];
 
 export default function SitePrivacyPanel({ state, onClose, onPermissionChange, onAdBlockChange }: Props) {
   const [feedback, setFeedback] = useState('');
-  const blockedCount = state.blockedTrackers.reduce((sum, tracker) => sum + tracker.count, 0);
+  const blockedCount = state.blockedRequestCount;
 
   const updatePermission = async (permission: SitePermissionName, value: string) => {
     try {

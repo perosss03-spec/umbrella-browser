@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ArrowUpRight, Bookmark, Check, Clock3, Download,
-  ExternalLink, FileDown, FileUp, FolderOpen, ImagePlus, Pause, Play,
-  Puzzle, RefreshCw, Search, Settings2, ShieldCheck, Trash2, X
+  ExternalLink, FileDown, FileUp, FolderOpen, Gauge, ImagePlus, Info, Palette, Pause, Play,
+  Puzzle, RefreshCw, Search, Settings2, ShieldCheck, Trash2, UserRound, X
 } from 'lucide-react';
 import type { BrowserState, DefaultBrowserResult } from '../../electron/preload';
+import { sidebarVisibilityOptions, toolbarVisibilityOptions } from './customization-options';
+import {
+  DEFAULT_SIDEBAR_ITEM_VISIBILITY,
+  DEFAULT_START_PAGE_CLOCK_COLOR,
+  DEFAULT_START_PAGE_FOOTER_TEXT,
+  DEFAULT_TOOLBAR_ITEM_VISIBILITY
+} from '../../electron/customization-settings';
 import UpdateCard from './UpdateCard';
 
 type Panel = 'bookmarks' | 'history' | 'downloads' | 'extensions' | 'settings';
+type SettingsSection = 'appearance' | 'privacy' | 'performance' | 'default-browser' | 'startup' | 'downloads' | 'data' | 'about';
 type Props = {
   panel: Panel;
   state: BrowserState;
@@ -20,7 +28,20 @@ type Props = {
   onSetExtensionEnabled: (id: string, enabled: boolean) => Promise<boolean>;
   onRemoveExtension: (id: string) => Promise<boolean>;
   onOpenBrowserImport: () => void;
+  onOpenAppearance: () => void;
+  onOpenExtensions: () => void;
 };
+
+const settingsSections: { id: SettingsSection; label: string; icon: typeof Bookmark; keywords: string }[] = [
+  { id: 'data', label: 'Profili e dati', icon: UserRound, keywords: 'profili importa esporta preferiti cronologia discord' },
+  { id: 'appearance', label: 'Aspetto e comportamento', icon: Palette, keywords: 'tema personalizzazione wallpaper sfondo toolbar barra orologio' },
+  { id: 'privacy', label: 'Privacy e sicurezza', icon: ShieldCheck, keywords: 'ad blocker cookie dati navigazione permessi' },
+  { id: 'performance', label: 'Prestazioni', icon: Gauge, keywords: 'performance memoria sospensione schede inattive' },
+  { id: 'default-browser', label: 'Browser predefinito', icon: ExternalLink, keywords: 'browser default link windows' },
+  { id: 'startup', label: "All'avvio", icon: Play, keywords: 'ripristina sessione schede' },
+  { id: 'downloads', label: 'Download', icon: Download, keywords: 'scaricamento salva notifiche' },
+  { id: 'about', label: 'Informazioni', icon: Info, keywords: 'aggiornamenti versione umbrella' }
+];
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return '—';
@@ -30,8 +51,10 @@ const formatBytes = (bytes: number) => {
 };
 const formatDate = (value: number) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
-export default function ManagerPanel({ panel, state, onOpen, onSettings, onClearHistory, onChooseWallpaper, onResetWallpaper, onAddExtension, onSetExtensionEnabled, onRemoveExtension, onOpenBrowserImport }: Props) {
+export default function ManagerPanel({ panel, state, onOpen, onSettings, onClearHistory, onChooseWallpaper, onResetWallpaper, onAddExtension, onSetExtensionEnabled, onRemoveExtension, onOpenBrowserImport, onOpenAppearance, onOpenExtensions }: Props) {
   const [search, setSearch] = useState('');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance');
+  const [settingsSearch, setSettingsSearch] = useState('');
   const [extensionFeedback, setExtensionFeedback] = useState('');
   const [installingExtension, setInstallingExtension] = useState(false);
   const [bookmarkFeedback, setBookmarkFeedback] = useState('');
@@ -42,6 +65,7 @@ export default function ManagerPanel({ panel, state, onOpen, onSettings, onClear
   const [discordFeedback, setDiscordFeedback] = useState('');
   const bookmarks = useMemo(() => state.bookmarks.filter((item) => `${item.title} ${item.url}`.toLowerCase().includes(search.toLowerCase())), [state.bookmarks, search]);
   const history = useMemo(() => state.history.filter((item) => `${item.title} ${item.url}`.toLowerCase().includes(search.toLowerCase())), [state.history, search]);
+  const visibleSettingsSections = settingsSections.filter((section) => `${section.label} ${section.keywords}`.toLowerCase().includes(settingsSearch.trim().toLowerCase()));
   const downloads = state.downloads;
 
   useEffect(() => {
@@ -108,6 +132,23 @@ export default function ManagerPanel({ panel, state, onOpen, onSettings, onClear
     });
     setDiscordFeedback(clientId ? 'ID applicazione salvato.' : 'ID rimosso; attività Discord disattivata.');
   };
+  const resetCustomization = () => onSettings({
+    startPageClockVisible: true,
+    startPageClockPosition: 'center',
+    startPageClockColor: DEFAULT_START_PAGE_CLOCK_COLOR,
+    startPageShortcutsVisible: true,
+    startPageFooterVisible: true,
+    startPageFooterText: DEFAULT_START_PAGE_FOOTER_TEXT,
+    sidebarCompact: true,
+    pageCornersRounded: false,
+    sidebarItems: { ...DEFAULT_SIDEBAR_ITEM_VISIBILITY },
+    toolbarItems: { ...DEFAULT_TOOLBAR_ITEM_VISIBILITY }
+  });
+  const updateClockPosition = (value: string) => {
+    if (value === 'center' || value === 'top-left' || value === 'top-right') {
+      onSettings({ startPageClockPosition: value });
+    }
+  };
 
   const openDiscordDeveloperPortal = async () => {
     try {
@@ -131,57 +172,113 @@ export default function ManagerPanel({ panel, state, onOpen, onSettings, onClear
 
   if (panel === 'settings') return (
     <main className="manager-page settings-page">
-      <div className="manager-header"><div className="manager-icon"><Settings2 size={18} /></div><div><span className="manager-kicker">PERSONALIZZA</span><h1>Impostazioni</h1><p>Umbrella, come piace a te.</p></div></div>
-      <div className="settings-grid">
-        <section className="settings-card"><div className="settings-card-title"><span>Aspetto</span><span>01</span></div><h3>Il tuo tema</h3><p>Scegli l'aspetto del browser e delle ricerche DuckDuckGo.</p>
-          <div className="theme-options">
-            {(['dark', 'light', 'system'] as const).map((theme) => <button key={theme} className={`theme-option ${state.settings.theme === theme ? 'selected' : ''}`} onClick={() => onSettings({ theme })}>
-              <span className={`theme-preview ${theme}`}><i /><i /></span><span>{theme === 'dark' ? 'Scuro' : theme === 'light' ? 'Chiaro' : 'Sistema'}</span>{state.settings.theme === theme && <Check size={14} />}
-            </button>)}
+      <header className="settings-page-header">
+        <div className="manager-icon"><Settings2 size={18} /></div>
+        <div><span className="manager-kicker">UMBRELLA</span><h1>Impostazioni</h1></div>
+      </header>
+      <div className="settings-layout">
+        <aside className="settings-navigation">
+          <label className="settings-search">
+            <Search size={14} />
+            <input aria-label="Cerca una sezione delle impostazioni" placeholder="Cerca nelle impostazioni" value={settingsSearch} onChange={(event) => setSettingsSearch(event.target.value)} />
+          </label>
+          <nav aria-label="Sezioni impostazioni">
+            {visibleSettingsSections.map(({ id, label, icon: Icon }) => (
+              <button key={id} className={`settings-nav-item ${settingsSection === id ? 'selected' : ''}`} aria-current={settingsSection === id ? 'page' : undefined} onClick={() => setSettingsSection(id)}>
+                <Icon size={15} /><span>{label}</span>
+              </button>
+            ))}
+            <div className="settings-nav-divider" />
+            <button className="settings-nav-item" onClick={onOpenExtensions}><Puzzle size={15} /><span>Estensioni</span><ExternalLink size={12} /></button>
+          </nav>
+          {visibleSettingsSections.length === 0 && <p className="settings-search-empty">Nessuna sezione trovata.</p>}
+        </aside>
+        <section className="settings-content">
+          <div className="settings-content-heading">
+            <span className="manager-kicker">PREFERENZE DEL BROWSER</span>
+            <h2>{settingsSections.find((section) => section.id === settingsSection)?.label}</h2>
+          </div>
+          <div className="settings-grid">
+            {settingsSection === 'appearance' && <>
+              <section className="settings-card"><h3>Tema</h3><p>Scegli l'aspetto di Umbrella e delle ricerche DuckDuckGo.</p>
+                <div className="theme-options">
+                  {(['dark', 'light', 'system'] as const).map((theme) => <button key={theme} className={`theme-option ${state.settings.theme === theme ? 'selected' : ''}`} onClick={() => onSettings({ theme })}>
+                    <span className={`theme-preview ${theme}`}><i /><i /></span><span>{theme === 'dark' ? 'Scuro' : theme === 'light' ? 'Chiaro' : 'Sistema'}</span>{state.settings.theme === theme && <Check size={14} />}
+                  </button>)}
+                </div>
+              </section>
+              <section className="settings-card"><h3>Personalizzazione della Nuova scheda</h3><p>Personalizza sfondo, orologio, colori e accessi rapidi. Le tue opzioni restano disponibili nell'anteprima live.</p>
+                <div className="settings-button-row"><button className="button-primary" onClick={onOpenAppearance}>Apri anteprima live</button></div>
+                <label className="setting-toggle"><span><strong>Mostra l’orologio</strong><small>Visualizza ora, data e saluto nella Nuova scheda.</small></span><input type="checkbox" checked={state.settings.startPageClockVisible} onChange={(event) => onSettings({ startPageClockVisible: event.target.checked })} /><i /></label>
+                <label className="setting-field" htmlFor="clock-position"><strong>Posizione dell’orologio</strong><select id="clock-position" value={state.settings.startPageClockPosition} disabled={!state.settings.startPageClockVisible} onChange={(event) => updateClockPosition(event.target.value)}>
+                  <option value="center">Centrato</option><option value="top-left">In alto a sinistra</option><option value="top-right">In alto a destra</option>
+                </select></label>
+                <label className="setting-field setting-color-field" htmlFor="clock-color"><strong>Colore dell’orologio</strong><input id="clock-color" type="color" value={state.settings.startPageClockColor} disabled={!state.settings.startPageClockVisible} onChange={(event) => onSettings({ startPageClockColor: event.target.value })} /></label>
+                <label className="setting-field setting-color-field" htmlFor="accent-color"><strong>Colore principale di Umbrella</strong><input id="accent-color" type="color" value={state.settings.accent} onChange={(event) => onSettings({ accent: event.target.value })} /></label>
+                <label className="setting-toggle"><span><strong>Mostra gli accessi rapidi</strong><small>Visualizza i preferiti e i siti suggeriti nella Nuova scheda.</small></span><input type="checkbox" checked={state.settings.startPageShortcutsVisible} onChange={(event) => onSettings({ startPageShortcutsVisible: event.target.checked })} /><i /></label>
+                <div className={`wallpaper-preview ${state.wallpaperUrl ? 'custom' : ''}`} style={state.wallpaperUrl ? { backgroundImage: `linear-gradient(90deg, rgba(10,14,27,.25), rgba(10,14,27,.05)), url("${state.wallpaperUrl}")` } : undefined}><span>{state.wallpaperUrl ? 'SFONDO PERSONALIZZATO' : 'SFONDO UMBRELLA'}</span></div>
+                <div className="settings-button-row"><button className="button-primary" onClick={onChooseWallpaper}><ImagePlus size={15} /> Cambia sfondo</button>{state.wallpaperUrl && <button className="button-quiet" onClick={onResetWallpaper}>Rimuovi</button>}</div>
+                <small className="setting-note">JPG, PNG, WEBP o GIF · massimo 30 MB · salvato sul dispositivo</small>
+              </section>
+              <section className="settings-card"><h3>Barre degli strumenti</h3><p>Personalizza le voci della barra laterale e i pulsanti superiori.</p>
+                <label className="setting-toggle"><span><strong>Barra laterale compatta</strong><small>Mostra le schede e le azioni come icone.</small></span><input type="checkbox" checked={state.settings.sidebarCompact} onChange={(event) => onSettings({ sidebarCompact: event.target.checked })} /><i /></label>
+                <label className="setting-toggle"><span><strong>Angoli arrotondati della pagina</strong><small>Arrotonda l’area dei siti visitati senza modificare la barra laterale.</small></span><input type="checkbox" checked={state.settings.pageCornersRounded} onChange={(event) => onSettings({ pageCornersRounded: event.target.checked })} /><i /></label>
+                <h4>Voci della barra laterale</h4>
+                {sidebarVisibilityOptions.map(({ key, label }) => <label className="setting-toggle" key={key}><span><strong>{label}</strong></span><input type="checkbox" checked={state.settings.sidebarItems[key]} onChange={(event) => onSettings({ sidebarItems: { ...state.settings.sidebarItems, [key]: event.target.checked } })} /><i /></label>)}
+                <h4>Pulsanti della barra superiore</h4>
+                {toolbarVisibilityOptions.map(({ key, label }) => <label className="setting-toggle" key={key}><span><strong>{label}</strong></span><input type="checkbox" checked={state.settings.toolbarItems[key]} onChange={(event) => onSettings({ toolbarItems: { ...state.settings.toolbarItems, [key]: event.target.checked } })} /><i /></label>)}
+                <div className="settings-button-row"><button className="button-quiet" onClick={resetCustomization}>Ripristina personalizzazione</button></div>
+                <small className="setting-note">Impostazioni e controlli della finestra restano sempre disponibili.</small>
+              </section>
+            </>}
+            {settingsSection === 'privacy' && <>
+              <section className="settings-card"><h3>Blocco annunci integrato</h3><p>Filtra richieste pubblicitarie e tracker nelle pagine web.</p>
+                <label className="setting-toggle"><span><strong>Ad blocker</strong><small>{state.settings.adBlockEnabled ? state.adBlockReady ? 'Filtri attivi nelle sessioni del browser.' : state.adBlockError ? 'Filtri non caricati: controlla la connessione.' : 'Caricamento dei filtri in corso…' : 'Blocco annunci disattivato.'}</small></span><input type="checkbox" checked={state.settings.adBlockEnabled} onChange={(event) => onSettings({ adBlockEnabled: event.target.checked })} /><i /></label>
+                <small className="setting-note">I filtri vengono scaricati e conservati localmente. Permessi ed eccezioni del sito corrente sono disponibili dall’icona accanto alla barra degli indirizzi.</small>
+              </section>
+              <section className="settings-card"><h3>Dati di navigazione</h3><p>Gestisci cookie, cache e dati salvati dai siti web.</p>
+                <div className="settings-action-row"><span><ShieldCheck size={17} /> Dati e permessi dei siti</span><button className="button-quiet" onClick={() => void window.umbrella.clearBrowsingData()}>Cancella dati</button></div>
+              </section>
+            </>}
+            {settingsSection === 'performance' && <section className="settings-card"><h3>Prestazioni e memoria</h3><p>Riduci il consumo di risorse gestendo le schede inattive.</p>
+              <label className="setting-toggle"><span><strong>Modalità performance</strong><small>Riduce le animazioni e gli effetti dell'interfaccia.</small></span><input type="checkbox" checked={state.settings.performanceModeEnabled} onChange={(event) => onSettings({ performanceModeEnabled: event.target.checked })} /><i /></label>
+              <label className="setting-field" htmlFor="tab-suspend-time"><strong>Sospensione automatica delle schede inattive</strong><select id="tab-suspend-time" value={state.settings.tabSuspendAfterMinutes} onChange={(event) => onSettings({ tabSuspendAfterMinutes: Number(event.target.value) })}>
+                <option value={0}>Mai</option><option value={5}>Dopo 5 minuti</option><option value={15}>Dopo 15 minuti</option><option value={30}>Dopo 30 minuti</option><option value={60}>Dopo 60 minuti</option>
+              </select></label>
+              <small className="setting-note">Le schede inattive vengono scaricate dalla memoria e ricaricate quando le riapri. Eventuali dati non salvati nei moduli della pagina potrebbero andare persi.</small>
+            </section>}
+            {settingsSection === 'startup' && <section className="settings-card"><h3>All'avvio</h3><p>Scegli se riprendere la navigazione da dove avevi lasciato.</p>
+              <label className="setting-toggle"><span><strong>Ripristina le schede</strong><small>Riapri le schede normali dopo la chiusura.</small></span><input type="checkbox" checked={state.settings.restoreSession} onChange={(event) => onSettings({ restoreSession: event.target.checked })} /><i /></label>
+            </section>}
+            {settingsSection === 'downloads' && <section className="settings-card"><h3>Gestione file</h3><p>Personalizza il comportamento dei download.</p>
+              <label className="setting-toggle"><span><strong>Chiedi dove salvare</strong><small>Mostra la finestra di scelta prima di scaricare.</small></span><input type="checkbox" checked={state.settings.askDownloadLocation} onChange={(event) => onSettings({ askDownloadLocation: event.target.checked })} /><i /></label>
+              <label className="setting-toggle"><span><strong>Notifiche di completamento</strong><small>Mostra feedback quando un download termina.</small></span><input type="checkbox" checked={state.settings.downloadNotifications} onChange={(event) => onSettings({ downloadNotifications: event.target.checked })} /><i /></label>
+            </section>}
+            {settingsSection === 'data' && <>
+              <section className="settings-card"><h3>Importa o esporta i tuoi dati</h3><p>Trasferisci preferiti e cronologia da Chrome, Edge, Firefox, Brave, Opera, Vivaldi e altri profili compatibili.</p>
+                <div className="settings-button-row"><button className="button-primary" onClick={onOpenBrowserImport}><FileUp size={15} /> Importa da un browser</button><button className="button-quiet" onClick={() => void window.umbrella.exportBookmarks()}><FileDown size={15} /> Esporta preferiti</button></div>
+                <div className="settings-button-row"><button className="button-quiet" onClick={() => void importBookmarks()}><FileUp size={14} /> Importa file HTML / JSON</button></div>
+                {bookmarkFeedback && <small className="setting-note" role="status">{bookmarkFeedback}</small>}
+              </section>
+              <section className="settings-card"><h3>Discord Activity</h3><p>Mostra sul tuo profilo che stai usando Umbrella. Non vengono condivisi i siti visitati o i titoli delle schede.</p>
+                <label className="setting-field" htmlFor="discord-client-id"><strong>ID applicazione Discord</strong><input id="discord-client-id" type="text" inputMode="numeric" autoComplete="off" maxLength={20} value={discordClientId} onChange={(event) => { setDiscordClientId(event.target.value); setDiscordFeedback(''); }} placeholder="Es. 123456789012345678" /></label>
+                <div className="settings-button-row"><button className="button-primary" onClick={saveDiscordClientId}>Salva ID</button><button className="button-quiet" onClick={() => void openDiscordDeveloperPortal()}><ExternalLink size={14} /> Developer Portal</button></div>
+                {discordFeedback && <small className="setting-note" role="status">{discordFeedback}</small>}
+                <label className="setting-toggle"><span><strong>Attività Discord</strong><small>{state.settings.discordActivityEnabled ? 'Umbrella proverà a mostrare la presenza quando Discord è aperto.' : 'Inserisci e salva un ID applicazione per attivarla.'}</small></span><input type="checkbox" checked={state.settings.discordActivityEnabled} disabled={!/^\d{17,20}$/.test(state.settings.discordClientId)} onChange={(event) => onSettings({ discordActivityEnabled: event.target.checked })} /><i /></label>
+                <small className="setting-note">Crea un’applicazione nel Discord Developer Portal e copia il suo Application ID. Discord deve essere aperto perché l’attività sia visibile.</small>
+                <small className="setting-note">Per mostrare il logo, carica <code>umbrella-icon.png</code> accanto a Umbrella.exe in Rich Presence → Art Assets e usa la chiave <code>umbrella</code>.</small>
+              </section>
+            </>}
+            {settingsSection === 'about' && <>
+              <UpdateCard />
+              <section className="settings-card about-card"><div className="about-brand"><div><strong>UMBRELLA</strong><small>Versione {state.version} · Chromium / Electron</small></div></div><p>Un browser indipendente, progettato per lasciare spazio a ciò che conta.</p></section>
+            </>}
+            {settingsSection === 'default-browser' && <section className="settings-card"><h3>{defaultBrowserStatus?.isDefault ? 'Umbrella è il browser predefinito' : 'Apri i link con Umbrella'}</h3><p>Windows richiede una conferma esplicita per i protocolli web. Puoi avviare la procedura anche dopo aver completato la configurazione iniziale.</p>
+              <div className="settings-button-row"><button className="button-primary" onClick={() => void openDefaultBrowserSettings()} disabled={defaultBrowserBusy}><Settings2 size={15} /> {defaultBrowserBusy ? 'Apertura…' : 'Apri impostazioni Windows'}</button><button className="button-quiet" onClick={() => void verifyDefaultBrowser()} disabled={defaultBrowserBusy}><ShieldCheck size={14} /> Verifica</button></div>
+              {defaultBrowserFeedback && <small className="setting-note" role="status">{defaultBrowserFeedback}</small>}
+            </section>}
           </div>
         </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Wallpaper</span><span>02</span></div><h3>Il tuo sfondo</h3><p>Personalizza la Nuova scheda con una tua immagine. Puoi cambiarla o tornare allo sfondo neutro.</p>
-          <div className={`wallpaper-preview ${state.wallpaperUrl ? 'custom' : ''}`} style={state.wallpaperUrl ? { backgroundImage: `linear-gradient(90deg, rgba(10,14,27,.25), rgba(10,14,27,.05)), url("${state.wallpaperUrl}")` } : undefined}><span>{state.wallpaperUrl ? 'SFONDO PERSONALIZZATO' : 'SFONDO UMBRELLA'}</span></div>
-          <div className="settings-button-row"><button className="button-primary" onClick={onChooseWallpaper}><ImagePlus size={15} /> Cambia sfondo</button>{state.wallpaperUrl && <button className="button-quiet" onClick={onResetWallpaper}>Rimuovi</button>}</div>
-          <small className="setting-note">JPG, PNG, WEBP o GIF · massimo 30 MB · salvato sul dispositivo</small>
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Esperienza</span><span>03</span></div><h3>All'avvio</h3><p>Riprendi la navigazione da dove avevi lasciato.</p>
-          <label className="setting-toggle"><span><strong>Ripristina le schede</strong><small>Riapri le schede normali dopo la chiusura.</small></span><input type="checkbox" checked={state.settings.restoreSession} onChange={(e) => onSettings({ restoreSession: e.target.checked })} /><i /></label>
-          <label className="setting-field" htmlFor="tab-suspend-time"><strong>Sospensione automatica delle schede inattive</strong><select id="tab-suspend-time" value={state.settings.tabSuspendAfterMinutes} onChange={(event) => onSettings({ tabSuspendAfterMinutes: Number(event.target.value) })}>
-            <option value={0}>Mai</option><option value={5}>Dopo 5 minuti</option><option value={15}>Dopo 15 minuti</option><option value={30}>Dopo 30 minuti</option><option value={60}>Dopo 60 minuti</option>
-          </select></label>
-          <small className="setting-note">Le schede inattive vengono scaricate dalla memoria e ricaricate quando le riapri. Eventuali dati non salvati nei moduli della pagina potrebbero andare persi.</small>
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Browser predefinito</span><span>04</span></div><h3>{defaultBrowserStatus?.isDefault ? 'Umbrella è il browser predefinito' : 'Apri i link con Umbrella'}</h3><p>Windows richiede una conferma esplicita per i protocolli web. Puoi avviare la procedura anche dopo aver completato la configurazione iniziale.</p>
-          <div className="settings-button-row"><button className="button-primary" onClick={() => void openDefaultBrowserSettings()} disabled={defaultBrowserBusy}><Settings2 size={15} /> {defaultBrowserBusy ? 'Apertura…' : 'Apri impostazioni Windows'}</button><button className="button-quiet" onClick={() => void verifyDefaultBrowser()} disabled={defaultBrowserBusy}><ShieldCheck size={14} /> Verifica</button></div>
-          {defaultBrowserFeedback && <small className="setting-note" role="status">{defaultBrowserFeedback}</small>}
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Download</span><span>05</span></div><h3>Gestione file</h3><p>Personalizza il comportamento dei download.</p>
-          <label className="setting-toggle"><span><strong>Chiedi dove salvare</strong><small>Mostra la finestra di scelta prima di scaricare.</small></span><input type="checkbox" checked={state.settings.askDownloadLocation} onChange={(e) => onSettings({ askDownloadLocation: e.target.checked })} /><i /></label>
-          <label className="setting-toggle"><span><strong>Notifiche di completamento</strong><small>Mostra feedback quando un download termina.</small></span><input type="checkbox" checked={state.settings.downloadNotifications} onChange={(e) => onSettings({ downloadNotifications: e.target.checked })} /><i /></label>
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Protezione</span><span>06</span></div><h3>Blocco annunci integrato</h3><p>Filtra richieste pubblicitarie e tracker nelle pagine web.</p>
-          <label className="setting-toggle"><span><strong>Ad blocker</strong><small>{state.settings.adBlockEnabled ? state.adBlockReady ? 'Filtri attivi nelle sessioni del browser.' : state.adBlockError ? 'Filtri non caricati: controlla la connessione.' : 'Caricamento dei filtri in corso…' : 'Blocco annunci disattivato.'}</small></span><input type="checkbox" checked={state.settings.adBlockEnabled} onChange={(e) => onSettings({ adBlockEnabled: e.target.checked })} /><i /></label>
-          <small className="setting-note">I filtri pubblicitari e anti-tracker vengono scaricati al primo avvio e conservati localmente. Gestisci i permessi e le eccezioni per il sito corrente con l’icona a sinistra della barra degli indirizzi.</small>
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Privacy</span><span>07</span></div><h3>Dati di navigazione</h3><p>Cookie, cache e dati salvati dai siti web.</p>
-          <div className="settings-action-row"><span><ShieldCheck size={17} /> Gestisci i dati dei siti</span><button className="button-quiet" onClick={() => void window.umbrella.clearBrowsingData()}>Cancella dati</button></div>
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Trasferimento dati</span><span>08</span></div><h3>Importa da un altro browser</h3><p>Rileva i browser e i profili presenti su questo PC. Puoi trasferire preferiti e cronologia da Chrome, Edge, Firefox, Brave, Opera, Vivaldi e altri profili compatibili.</p>
-          <div className="settings-button-row"><button className="button-primary" onClick={onOpenBrowserImport}><FileUp size={15} /> Importa dati</button><button className="button-quiet" onClick={() => void window.umbrella.exportBookmarks()}><FileDown size={15} /> Esporta preferiti</button></div>
-          <div className="settings-button-row"><button className="button-quiet" onClick={() => void importBookmarks()}><FileUp size={14} /> Importa file HTML / JSON</button></div>
-          {bookmarkFeedback && <small className="setting-note" role="status">{bookmarkFeedback}</small>}
-        </section>
-        <section className="settings-card"><div className="settings-card-title"><span>Discord Activity</span><span>09</span></div><h3>Mostra Umbrella su Discord</h3><p>Mostra sul tuo profilo che stai usando Umbrella. Non vengono condivisi i siti visitati o i titoli delle schede.</p>
-          <label className="setting-field" htmlFor="discord-client-id"><strong>ID applicazione Discord</strong><input id="discord-client-id" type="text" inputMode="numeric" autoComplete="off" maxLength={20} value={discordClientId} onChange={(event) => { setDiscordClientId(event.target.value); setDiscordFeedback(''); }} placeholder="Es. 123456789012345678" /></label>
-          <div className="settings-button-row"><button className="button-primary" onClick={saveDiscordClientId}>Salva ID</button><button className="button-quiet" onClick={() => void openDiscordDeveloperPortal()}><ExternalLink size={14} /> Developer Portal</button></div>
-          {discordFeedback && <small className="setting-note" role="status">{discordFeedback}</small>}
-          <label className="setting-toggle"><span><strong>Attività Discord</strong><small>{state.settings.discordActivityEnabled ? 'Umbrella proverà a mostrare la presenza quando Discord è aperto.' : 'Inserisci e salva un ID applicazione per attivarla.'}</small></span><input type="checkbox" checked={state.settings.discordActivityEnabled} disabled={!/^\d{17,20}$/.test(state.settings.discordClientId)} onChange={(event) => onSettings({ discordActivityEnabled: event.target.checked })} /><i /></label>
-          <small className="setting-note">Crea un’applicazione nel Discord Developer Portal e copia il suo Application ID. Discord deve essere aperto sul computer perché l’attività sia visibile.</small>
-          <small className="setting-note">Per mostrare il logo, carica <code>umbrella-icon.png</code> (nella cartella <code>resources</code> accanto a Umbrella.exe) in Rich Presence → Art Assets nel Developer Portal e usa la chiave <code>umbrella</code>.</small>
-        </section>
-        <UpdateCard />
-        <section className="settings-card about-card"><div className="settings-card-title"><span>Informazioni</span><span>11</span></div><div className="about-brand"><div><strong>UMBRELLA</strong><small>Versione 0.4.5 · Chromium / Electron</small></div></div><p>Un browser indipendente, progettato per lasciare spazio a ciò che conta.</p></section>
       </div>
     </main>
   );

@@ -16,11 +16,13 @@ export type TabInfo = {
   suspended: boolean;
 };
 export type BlockedTracker = { hostname: string; count: number };
+export type ToolbarPopupKind = 'downloads' | 'adblock';
 export type SitePrivacyState = {
   origin: string | null;
   permissions: Partial<Record<SitePermissionName, boolean>>;
   adBlockEnabled: boolean;
   adBlockExcluded: boolean;
+  blockedRequestCount: number;
   blockedTrackers: BlockedTracker[];
 };
 export type DownloadInfo = {
@@ -29,12 +31,14 @@ export type DownloadInfo = {
   url: string;
   receivedBytes: number;
   totalBytes: number;
+  remainingSeconds: number | null;
   state: string;
   paused: boolean;
   savePath: string;
 };
 export type ExtensionInfo = { id: string; name: string; version: string; enabled: boolean; iconDataUrl?: string };
 export type BrowserState = {
+  version: string;
   tabs: TabInfo[];
   activeTabId: string;
   bookmarks: Bookmark[];
@@ -79,6 +83,15 @@ export type BrowserImportResult = {
 
 const api = {
   getState: () => ipcRenderer.invoke('browser:get-state') as Promise<BrowserState>,
+  openToolbarPopup: (kind: ToolbarPopupKind, bounds: { right: number; bottom: number }) =>
+    ipcRenderer.invoke('toolbar-popup:open', { kind, bounds }) as Promise<boolean>,
+  closeToolbarPopup: () => ipcRenderer.invoke('toolbar-popup:close') as Promise<boolean>,
+  openDownloadsHistory: () => ipcRenderer.invoke('downloads:open-history') as Promise<boolean>,
+  onOpenDownloadsHistory: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('ui:open-downloads', handler);
+    return () => ipcRenderer.removeListener('ui:open-downloads', handler);
+  },
   onState: (callback: (state: BrowserState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: BrowserState) => callback(state);
     ipcRenderer.on('browser:state', handler);
@@ -110,7 +123,7 @@ const api = {
     ipcRenderer.invoke('privacy:set-site-permission', { origin, permission, allowed }) as Promise<boolean>,
   setSiteAdBlockExcluded: (origin: string, excluded: boolean) =>
     ipcRenderer.invoke('privacy:set-site-adblock-excluded', { origin, excluded }) as Promise<boolean>,
-  setContentBounds: (bounds: { x: number; y: number; width: number; height: number; visible: boolean }) =>
+  setContentBounds: (bounds: { x: number; y: number; width: number; height: number; visible: boolean; rounded: boolean }) =>
     ipcRenderer.send('browser:set-content-bounds', bounds),
   navigate: (input: string, tabId?: string) => ipcRenderer.invoke('browser:navigate', { input, tabId }),
   newTab: (url?: string, incognito = false) => ipcRenderer.invoke('tabs:new', { url, incognito }),
