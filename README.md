@@ -144,6 +144,7 @@ I dati browser sono conservati nella directory `userData/Umbrella`, distinta dai
 
 - `Ctrl+L`: barra degli indirizzi
 - `Ctrl+T`: nuova scheda
+- `Ctrl+Shift+N`: nuova scheda privata
 - `Ctrl+W`: chiudi scheda
 - `Ctrl+Shift+T`: ripristina scheda
 - `Ctrl+R`: ricarica

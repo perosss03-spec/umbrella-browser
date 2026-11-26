@@ -592,6 +592,7 @@ function createPageView(tab: Tab): WebContentsView | null {
     if (key === 'l') { event.preventDefault(); mainWindow?.webContents.send('ui:focus-address'); }
     else if (key === 't' && input.shift) { event.preventDefault(); const previous = recentlyClosed.shift(); if (previous) createTab(previous.url); }
     else if (key === 't') { event.preventDefault(); createTab(); }
+    else if (key === 'n' && input.shift) { event.preventDefault(); createTab(undefined, true); }
     else if (key === 'w') { event.preventDefault(); closeTab(tab.id); }
     else if (key === 'r') { event.preventDefault(); contents.reload(); }
     else if (key === 'f') { event.preventDefault(); mainWindow?.webContents.send('ui:find'); }
@@ -887,6 +888,7 @@ ipcMain.handle('tabs:context-menu', (_event, payload: { id: string; x: number; y
   const id = payload.id;
   const menu = Menu.buildFromTemplate([
     { label: 'Nuova scheda', click: () => createTab() },
+    { label: 'Nuova scheda privata', click: () => createTab(undefined, true) },
     { type: 'separator' },
     { label: 'Duplica scheda', click: () => { const tab = tabs.find((item) => item.id === id); if (tab) tab.url ? createTab(tab.url, tab.incognito) : createTab(undefined, tab.incognito); } },
     { label: 'Chiudi scheda', click: () => closeTab(id) },
