@@ -37,6 +37,7 @@ export type ExtensionInfo = { id: string; name: string; version: string; enabled
 export type BrowserState = {
   tabs: TabInfo[];
   activeTabId: string;
+  appVersion: string;
   bookmarks: Bookmark[];
   history: Visit[];
   downloads: DownloadInfo[];

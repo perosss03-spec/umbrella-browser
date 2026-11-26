@@ -10,6 +10,7 @@ type SidebarPanel = Exclude<Panel, 'extensions'>;
 type Props = {
   tabs: TabInfo[];
   activeTabId: string;
+  version: string;
   panel: Panel;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -37,7 +38,7 @@ function TabFavicon({ tab }: { tab: TabInfo }) {
 
 export default function Sidebar(props: Props) {
   const [dragged, setDragged] = useState<string | null>(null);
-  const { tabs, activeTabId, panel, expanded, onToggleExpanded, onNewTab, onSwitchTab, onCloseTab, onMoveTab, onTabContextMenu, onPanel } = props;
+  const { tabs, activeTabId, version, panel, expanded, onToggleExpanded, onNewTab, onSwitchTab, onCloseTab, onMoveTab, onTabContextMenu, onPanel } = props;
   const navItems: { id: SidebarPanel; label: string; icon: typeof Bookmark }[] = [
     { id: 'bookmarks', label: 'Preferiti', icon: Bookmark },
     { id: 'history', label: 'Cronologia', icon: Clock3 },
@@ -97,7 +98,7 @@ export default function Sidebar(props: Props) {
         ))}
         <div className="sidebar-footer">
           <div className="privacy-indicator"><span className="status-dot" />{expanded && <span>Dati sul dispositivo</span>}</div>
-          {expanded && <span className="sidebar-version">UMBRELLA · 0.4.4</span>}
+          {expanded && <span className="sidebar-version">UMBRELLA · {version}</span>}
         </div>
       </div>
     </aside>

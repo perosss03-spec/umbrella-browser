@@ -152,6 +152,7 @@ export default function App() {
           activeTabId={state?.activeTabId ?? ''}
           panel={panel}
           expanded={performanceMode || sidebarExpanded}
+          version={state?.appVersion ?? ''}
           onToggleExpanded={() => setSidebarExpanded((value) => !value)}
           onNewTab={newTab}
           onSwitchTab={switchTab}

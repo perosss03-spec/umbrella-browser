@@ -181,7 +181,7 @@ export default function ManagerPanel({ panel, state, onOpen, onSettings, onClear
           <small className="setting-note">Per mostrare il logo, carica <code>umbrella-icon.png</code> (nella cartella <code>resources</code> accanto a Umbrella.exe) in Rich Presence → Art Assets nel Developer Portal e usa la chiave <code>umbrella</code>.</small>
         </section>
         <UpdateCard />
-        <section className="settings-card about-card"><div className="settings-card-title"><span>Informazioni</span><span>11</span></div><div className="about-brand"><div><strong>UMBRELLA</strong><small>Versione 0.4.4 · Chromium / Electron</small></div></div><p>Un browser indipendente, progettato per lasciare spazio a ciò che conta.</p></section>
+        <section className="settings-card about-card"><div className="settings-card-title"><span>Informazioni</span><span>11</span></div><div className="about-brand"><div><strong>UMBRELLA</strong><small>Versione {state.appVersion} · Chromium / Electron</small></div></div><p>Un browser indipendente, progettato per lasciare spazio a ciò che conta.</p></section>
       </div>
     </main>
   );

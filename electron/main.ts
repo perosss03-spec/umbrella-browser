@@ -348,6 +348,7 @@ function emitState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('browser:state', {
     tabs: tabs.map(toTabInfo), activeTabId,
+    appVersion: app.getVersion(),
     bookmarks: database.bookmarks,
     history: database.history.slice(0, 500),
     downloads: currentDownloads(),
@@ -822,6 +823,7 @@ function currentTabView() { return activeTab()?.view?.webContents ?? null; }
 
 ipcMain.handle('browser:get-state', () => ({
   tabs: tabs.map(toTabInfo), activeTabId,
+  appVersion: app.getVersion(),
   bookmarks: database.bookmarks,
   history: database.history.slice(0, 500),
   downloads: currentDownloads(), settings: database.settings,
