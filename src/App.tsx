@@ -168,7 +168,9 @@ export default function App() {
               wallpaperUrl={state.wallpaperUrl}
               onSearch={navigate}
               onOpen={openUrl}
-              onAddBookmark={(title, url) => void window.umbrella.addBookmark(title, url)}
+              onAddBookmark={(title, url) => window.umbrella.addBookmark(title, url)}
+              onUpdateBookmark={(id, title, url) => window.umbrella.updateBookmark(id, title, url)}
+              onRemoveBookmark={(id) => window.umbrella.removeBookmark(id)}
               onSettings={() => setPanel('settings')}
             />}
             {!performanceMode && panel !== 'home' && state && <ManagerPanel

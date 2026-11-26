@@ -1,6 +1,6 @@
 # UMBRELLA
 
-**Umbrella 0.4.4** è un browser desktop Windows basato su Electron, Chromium, React e TypeScript. Include modalità performance, controlli privacy per sito e sospensione delle schede inattive, oltre alla Discord Activity e alle funzionalità di primo avvio e trasferimento dati browser.
+**Umbrella 0.4.5** è un browser desktop Windows basato su Electron, Chromium, React e TypeScript. Include modalità performance, controlli privacy per sito e sospensione delle schede inattive, oltre alla Discord Activity e alle funzionalità di primo avvio e trasferimento dati browser.
 
 ## Download
 

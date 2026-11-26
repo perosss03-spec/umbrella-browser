@@ -1,6 +1,6 @@
 {
   "name": "umbrella-browser",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "Umbrella — a minimal, privacy-conscious Chromium desktop browser with custom wallpapers, Chrome-compatible extensions and integrated ad blocking.",
   "main": "./out/main/index.js",
@@ -14,7 +14,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "test": "node --experimental-strip-types --test electron/bookmarks.test.ts electron/navigation.test.ts electron/browser-import.test.ts electron/discord-presence.test.ts electron/tab-suspension.test.ts electron/pending-permissions.test.ts electron/updates.test.ts electron/update-assets.test.ts electron/context-menu.test.ts",
+    "test": "node --experimental-strip-types --test electron/bookmarks.test.ts electron/navigation.test.ts electron/browser-import.test.ts electron/discord-presence.test.ts electron/tab-suspension.test.ts electron/pending-permissions.test.ts electron/updates.test.ts electron/update-assets.test.ts electron/context-menu.test.ts electron/tab-navigation-state.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "npm run build && electron-builder --win nsis portable --x64"
   },

@@ -20,6 +20,7 @@ import type { AppSettings } from './storage';
 import { discoverBrowserProfiles, importBrowserProfile, registerCustomBrowserProfile } from './browser-import';
 import { PendingPermissionRegistry } from './pending-permissions';
 import { buildBrowserContextMenu, type BrowserContextMenuAction } from './context-menu';
+import { getTabNavigationState } from './tab-navigation-state';
 import { autoUpdater } from 'electron-updater';
 import { UpdateController, type AutoUpdaterLike } from './updates';
 import { buildReleaseApiUrls } from './update-assets';
@@ -88,6 +89,8 @@ type DownloadRecord = {
 type ContentBounds = { x: number; y: number; width: number; height: number; visible: boolean };
 
 let mainWindow: BrowserWindow | null = null;
+let isAppQuitting = false;
+let isMainWindowClosing = false;
 let extensionPopupWindow: BrowserWindow | null = null;
 let extensionPopupId = '';
 let database = getDatabase();
@@ -115,6 +118,10 @@ let permissionRequestSweepTimer: NodeJS.Timeout | null = null;
 const sitePermissionNames: SitePermissionName[] = ['media', 'geolocation', 'notifications', 'clipboard-read', 'midiSysex'];
 
 const activeTab = () => tabs.find((tab) => tab.id === activeTabId) ?? null;
+const tabWebContents = (tab: Tab) => {
+  const contents = tab.view?.webContents;
+  return contents && !contents.isDestroyed() ? contents : null;
+};
 const getHttpOrigin = (value: string | null | undefined) => {
   if (!value) return null;
   try {
@@ -127,8 +134,7 @@ const getHttpOrigin = (value: string | null | undefined) => {
 const toTabInfo = (tab: Tab) => ({
   id: tab.id, title: tab.title || 'Nuova scheda', url: tab.url,
   isNewTab: !tab.url, loading: tab.loading,
-  canGoBack: !!tab.view?.webContents.canGoBack(),
-  canGoForward: !!tab.view?.webContents.canGoForward(),
+  ...getTabNavigationState(tabWebContents(tab)),
   audible: tab.audible, incognito: tab.incognito, faviconUrl: tab.faviconUrl, suspended: tab.suspended
 });
 
@@ -192,7 +198,7 @@ function installAdBlockerTracking(blocker: ElectronBlocker) {
   const originalInjectCosmetics = blocker.onInjectCosmeticFilters.bind(blocker);
 
   blocker.onBeforeRequest = (details, callback) => {
-    const tab = tabs.find((item) => item.view?.webContents.id === details.webContentsId);
+    const tab = tabs.find((item) => tabWebContents(item)?.id === details.webContentsId);
     const origin = tab?.incognito ? null : (details.resourceType === 'mainFrame' ? getHttpOrigin(details.url) : null)
       ?? getHttpOrigin(tab?.url) ?? getHttpOrigin(details.initiatorOrigin) ?? getHttpOrigin(details.referrer);
     if (isSiteAdBlockExcluded(origin)) {
@@ -205,7 +211,7 @@ function installAdBlockerTracking(blocker: ElectronBlocker) {
     });
   };
   blocker.onHeadersReceived = (details, callback) => {
-    const tab = tabs.find((item) => item.view?.webContents.id === details.webContentsId);
+    const tab = tabs.find((item) => tabWebContents(item)?.id === details.webContentsId);
     const origin = tab?.incognito ? null : (details.resourceType === 'mainFrame' ? getHttpOrigin(details.url) : null)
       ?? getHttpOrigin(tab?.url) ?? getHttpOrigin(details.initiatorOrigin) ?? getHttpOrigin(details.referrer);
     if (isSiteAdBlockExcluded(origin)) {
@@ -375,10 +381,10 @@ function updateTab(tab: Tab, patch: Partial<Pick<Tab, 'title' | 'url' | 'loading
 
 function applyContentViewVisibility() {
   for (const tab of tabs) {
-    if (tab.view) tab.view.setVisible(false);
+    if (tab.view && tabWebContents(tab)) tab.view.setVisible(false);
   }
   const current = activeTab();
-  if (current?.view && contentBounds.visible && mainWindow && !mainWindow.isMinimized()) {
+  if (current?.view && tabWebContents(current) && contentBounds.visible && mainWindow && !mainWindow.isMinimized()) {
     current.view.setBounds({
       x: Math.max(0, Math.round(contentBounds.x)),
       y: Math.max(0, Math.round(contentBounds.y)),
@@ -472,7 +478,7 @@ function configureSession(partition: string, isPrivate: boolean) {
     const savedDecision = database.settings.sitePermissions[origin]?.[supportedPermission];
     if (typeof savedDecision === 'boolean') return callback(savedDecision);
     const id = randomUUID();
-    const tabId = tabs.find((tab) => tab.view?.webContents.id === webContents.id)?.id ?? '';
+    const tabId = tabs.find((tab) => tabWebContents(tab)?.id === webContents.id)?.id ?? '';
     pendingPermissionRequests.add(id, tabId, { callback, origin, permission: supportedPermission });
     let hostname = origin;
     try { hostname = new URL(origin).hostname || origin; } catch {}
@@ -487,7 +493,12 @@ function configureSession(partition: string, isPrivate: boolean) {
 }
 
 function createPageView(tab: Tab): WebContentsView | null {
-  if (!mainWindow || tab.view) return tab.view;
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  if (tabWebContents(tab)) return tab.view;
+  if (tab.view) {
+    try { mainWindow.contentView.removeChildView(tab.view); } catch { /* already detached */ }
+    tab.view = null;
+  }
   const partition = tab.incognito ? `umbrella-private-${tab.id}` : DEFAULT_PARTITION;
   const ses = configureSession(partition, tab.incognito);
   const view = new WebContentsView({
@@ -558,7 +569,18 @@ function createPageView(tab: Tab): WebContentsView | null {
     });
     Menu.buildFromTemplate(template).popup({ window: mainWindow });
   });
-  contents.once('destroyed', () => pendingContextSavePaths.delete(contents.id));
+  contents.once('destroyed', () => {
+    pendingContextSavePaths.delete(contents.id);
+    if (tab.view !== view) return;
+    try { view.setVisible(false); } catch { /* view is already destroyed */ }
+    try { mainWindow?.contentView.removeChildView(view); } catch { /* already detached */ }
+    tab.view = null;
+    tab.loading = false;
+    tab.audible = false;
+    tab.suspended = !!tab.url;
+    if (isAppQuitting || isMainWindowClosing || !tabs.some((item) => item.id === tab.id)) return;
+    closeTab(tab.id);
+  });
   contents.on('will-navigate', (event, url) => {
     if (url.startsWith('mailto:')) { event.preventDefault(); void shell.openExternal(url); return; }
     if (!isSafeWebUrl(url) && url !== 'about:blank') event.preventDefault();
@@ -639,7 +661,7 @@ function savePageAs(contents: Electron.WebContents) {
 }
 
 function loadTab(tab: Tab) {
-  if (!tab.url || tab.view) return;
+  if (!tab.url || tabWebContents(tab)) return;
   const view = createPageView(tab);
   if (!view) return;
   tab.loading = true;
@@ -688,11 +710,12 @@ function closeTab(id: string) {
   if (tab.view) {
     // Detach and hide the native view before destroying its WebContents. This avoids
     // stale native surfaces covering the renderer after a tab is removed.
-    tab.view.setVisible(false);
-    try { mainWindow?.contentView.removeChildView(tab.view); } catch { /* already detached */ }
-    const closingContents = tab.view.webContents;
+    const closingView = tab.view;
+    try { closingView.setVisible(false); } catch { /* view is already destroyed */ }
+    try { mainWindow?.contentView.removeChildView(closingView); } catch { /* already detached */ }
+    const closingContents = closingView.webContents;
     tab.view = null;
-    if (!closingContents.isDestroyed()) closingContents.close({ waitForBeforeUnload: false });
+    if (closingContents && !closingContents.isDestroyed()) closingContents.close({ waitForBeforeUnload: false });
   }
   if (wasActive) {
     const next = tabs[Math.min(index, tabs.length - 1)];
@@ -714,14 +737,15 @@ function closeTab(id: string) {
 function suspendTab(tab: Tab) {
   const view = tab.view;
   if (!view) return;
+  const contents = tabWebContents(tab);
   denyPendingPermissions(pendingPermissionRequests.cancelForTab(tab.id));
-  view.setVisible(false);
+  try { view.setVisible(false); } catch { /* view is already destroyed */ }
   try { mainWindow?.contentView.removeChildView(view); } catch { /* already detached */ }
   tab.view = null;
   tab.loading = false;
   tab.audible = false;
   tab.suspended = true;
-  if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+  if (contents) contents.close({ waitForBeforeUnload: false });
   emitState();
 }
 
@@ -731,8 +755,8 @@ function suspendInactiveTabs() {
   const now = Date.now();
   for (const tab of tabs) {
     if (!shouldSuspendTab(tab, activeTabId, minutes, now)) continue;
-    const contents = tab.view?.webContents;
-    if (!contents || contents.isDestroyed() || contents.isCurrentlyAudible()) continue;
+    const contents = tabWebContents(tab);
+    if (!contents || contents.isCurrentlyAudible()) continue;
     suspendTab(tab);
   }
 }
@@ -752,7 +776,7 @@ function navigate(input: string, tabId?: string) {
     activeTabId = tab.id;
     tab.inactiveSince = null;
   }
-  if (!tab.view) createPageView(tab);
+  if (!tabWebContents(tab)) createPageView(tab);
   tab.url = url;
   tab.title = url;
   tab.loading = true;
@@ -762,7 +786,7 @@ function navigate(input: string, tabId?: string) {
   if (tab.id !== activeTabId) activeTabId = tab.id;
   applyContentViewVisibility();
   emitState();
-  void tab.view?.webContents.loadURL(url).catch((error) => {
+  void tabWebContents(tab)?.loadURL(url).catch((error) => {
     console.warn('[Umbrella] Navigation failed:', error);
     updateTab(tab!, { loading: false });
   });
@@ -770,6 +794,7 @@ function navigate(input: string, tabId?: string) {
 }
 
 function createWindow() {
+  isMainWindowClosing = false;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -795,7 +820,10 @@ function createWindow() {
   mainWindow.on('resize', applyContentViewVisibility);
   mainWindow.on('maximize', applyContentViewVisibility);
   mainWindow.on('unmaximize', applyContentViewVisibility);
-  mainWindow.on('close', () => persistSession());
+  mainWindow.on('close', () => {
+    isMainWindowClosing = true;
+    persistSession();
+  });
   mainWindow.on('closed', () => {
     denyPendingPermissions(pendingPermissionRequests.drain());
     mainWindow = null;
@@ -814,11 +842,16 @@ function createWindow() {
       createTab(process.argv.find(isSafeWebUrl));
     }
   } else {
+    const current = activeTab();
+    if (current) loadTab(current);
     applyContentViewVisibility();
   }
 }
 
-function currentTabView() { return activeTab()?.view?.webContents ?? null; }
+function currentTabView() {
+  const tab = activeTab();
+  return tab ? tabWebContents(tab) : null;
+}
 
 ipcMain.handle('browser:get-state', () => ({
   tabs: tabs.map(toTabInfo), activeTabId,
@@ -1581,6 +1614,7 @@ app.whenReady().then(async () => {
   nativeTheme.on('updated', emitState);
 });
 app.on('before-quit', () => {
+  isAppQuitting = true;
   if (tabSuspensionTimer) clearInterval(tabSuspensionTimer);
   if (blockedRequestUpdateTimer) clearTimeout(blockedRequestUpdateTimer);
   if (permissionRequestSweepTimer) clearInterval(permissionRequestSweepTimer);

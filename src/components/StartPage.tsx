@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react';
 import {
-  ArrowUpRight, BookmarkPlus, CirclePlus, Code2, Mail,
-  Play, Plus, Search, Send, Settings2, X
+  ArrowUpRight, BookmarkPlus, Code2, Mail, Pencil,
+  Play, Plus, Search, Send, Settings2, Trash2, X
 } from 'lucide-react';
 import type { Bookmark } from '../../electron/storage';
 
@@ -9,7 +9,9 @@ type Props = {
   bookmarks: Bookmark[];
   onSearch: (value: string) => void;
   onOpen: (url: string) => void;
-  onAddBookmark: (title: string, url: string) => void;
+  onAddBookmark: (title: string, url: string) => Promise<boolean>;
+  onUpdateBookmark: (id: string, title: string, url: string) => Promise<boolean>;
+  onRemoveBookmark: (id: string) => Promise<void>;
   onSettings: () => void;
   wallpaperUrl: string | null;
 };
@@ -46,19 +48,92 @@ function Clock() {
   );
 }
 
-export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, onSettings, wallpaperUrl }: Props) {
+export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, onUpdateBookmark, onRemoveBookmark, onSettings, wallpaperUrl }: Props) {
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
+  const [editingShortcut, setEditingShortcut] = useState<Bookmark | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ bookmark: Bookmark; x: number; y: number } | null>(null);
+  const [shortcutFeedback, setShortcutFeedback] = useState('');
   const shortcuts = useMemo(() => bookmarks.slice(0, 4), [bookmarks]);
 
-  const saveShortcut = (event: FormEvent) => {
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [contextMenu]);
+
+  const closeShortcutDialog = () => {
+    setAdding(false);
+    setEditingShortcut(null);
+    setTitle('');
+    setUrl('');
+    setShortcutFeedback('');
+  };
+
+  const openAddDialog = () => {
+    setEditingShortcut(null);
+    setTitle('');
+    setUrl('');
+    setShortcutFeedback('');
+    setAdding(true);
+  };
+
+  const openShortcutContextMenu = (event: MouseEvent<HTMLButtonElement>, bookmark: Bookmark) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setShortcutFeedback('');
+    setContextMenu({
+      bookmark,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 196)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 92))
+    });
+  };
+
+  const editShortcut = () => {
+    if (!contextMenu) return;
+    setEditingShortcut(contextMenu.bookmark);
+    setTitle(contextMenu.bookmark.title);
+    setUrl(contextMenu.bookmark.url);
+    setShortcutFeedback('');
+    setContextMenu(null);
+    setAdding(true);
+  };
+
+  const removeShortcut = async () => {
+    if (!contextMenu) return;
+    const bookmark = contextMenu.bookmark;
+    setContextMenu(null);
+    setShortcutFeedback('');
+    try {
+      await onRemoveBookmark(bookmark.id);
+    } catch (error) {
+      console.error('[Umbrella] Could not remove the start-page shortcut:', error);
+      setShortcutFeedback('Non è stato possibile rimuovere l’accesso rapido.');
+    }
+  };
+
+  const saveShortcut = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim() || !url.trim()) return;
     const normalized = /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`;
-    onAddBookmark(title.trim(), normalized);
-    setTitle(''); setUrl(''); setAdding(false);
+    try {
+      const saved = editingShortcut
+        ? await onUpdateBookmark(editingShortcut.id, title.trim(), normalized)
+        : await onAddBookmark(title.trim(), normalized);
+      if (!saved) {
+        setShortcutFeedback('Controlla l’indirizzo web e riprova.');
+        return;
+      }
+      closeShortcutDialog();
+    } catch (error) {
+      console.error('[Umbrella] Could not save the start-page shortcut:', error);
+      setShortcutFeedback('Non è stato possibile salvare l’accesso rapido.');
+    }
   };
 
   return (
@@ -84,7 +159,13 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
         <section className="shortcuts-section" aria-label="Accessi rapidi">
           <div className="shortcut-grid">
             {shortcuts.length > 0 ? shortcuts.map((item) => (
-              <button className="shortcut-card" key={item.id} onClick={() => onOpen(item.url)} title={item.url}>
+              <button
+                className="shortcut-card"
+                key={item.id}
+                onClick={() => onOpen(item.url)}
+                onContextMenu={(event) => openShortcutContextMenu(event, item)}
+                title={item.url}
+              >
                 <span className="shortcut-icon saved"><Search size={23} strokeWidth={1.7} /></span>
                 <span className="shortcut-title">{item.title}</span>
                 <ArrowUpRight className="shortcut-open" size={13} />
@@ -96,7 +177,7 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
                 <ArrowUpRight className="shortcut-open" size={13} />
               </button>
             ))}
-            {shortcuts.length < 4 && <button className="shortcut-card add-shortcut" onClick={() => setAdding(true)}>
+            {shortcuts.length < 4 && <button className="shortcut-card add-shortcut" onClick={openAddDialog}>
               <span className="shortcut-icon add"><Plus size={25} strokeWidth={1.6} /></span>
               <span className="shortcut-title">Aggiungi</span>
             </button>}
@@ -113,12 +194,34 @@ export default function StartPage({ bookmarks, onSearch, onOpen, onAddBookmark, 
         <Settings2 size={19} strokeWidth={1.8} />
       </button>
 
-      {adding && <div className="modal-backdrop" onClick={() => setAdding(false)}>
+      {contextMenu && <div
+        className="shortcut-context-backdrop"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) setContextMenu(null);
+        }}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        <div
+          className="shortcut-context-menu"
+          role="menu"
+          aria-label={`Opzioni per ${contextMenu.bookmark.title}`}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button role="menuitem" onClick={editShortcut}><Pencil size={15} /> Modifica</button>
+          <button className="remove-shortcut-action" role="menuitem" onClick={() => void removeShortcut()}><Trash2 size={15} /> Rimuovi</button>
+        </div>
+      </div>}
+
+      {!adding && shortcutFeedback && <div className="shortcut-feedback" role="status">{shortcutFeedback}</div>}
+
+      {adding && <div className="modal-backdrop" onClick={closeShortcutDialog}>
         <form className="dialog-card" onSubmit={saveShortcut} onClick={(event) => event.stopPropagation()}>
-          <div className="dialog-head"><div><span className="dialog-kicker">PERSONALIZZA</span><h2>Nuovo accesso rapido</h2></div><button type="button" className="icon-button" onClick={() => setAdding(false)} aria-label="Chiudi"><X size={17} /></button></div>
+          <div className="dialog-head"><div><span className="dialog-kicker">PERSONALIZZA</span><h2>{editingShortcut ? 'Modifica accesso rapido' : 'Nuovo accesso rapido'}</h2></div><button type="button" className="icon-button" onClick={closeShortcutDialog} aria-label="Chiudi"><X size={17} /></button></div>
           <label>Nome<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Es. Il mio sito" required /></label>
           <label>Indirizzo web<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="esempio.com" required /></label>
-          <div className="dialog-actions"><button type="button" className="button-quiet" onClick={() => setAdding(false)}>Annulla</button><button type="submit" className="button-primary"><BookmarkPlus size={15} /> Salva accesso</button></div>
+          {shortcutFeedback && <small className="shortcut-dialog-feedback" role="alert">{shortcutFeedback}</small>}
+          <div className="dialog-actions"><button type="button" className="button-quiet" onClick={closeShortcutDialog}>Annulla</button><button type="submit" className="button-primary"><BookmarkPlus size={15} /> {editingShortcut ? 'Salva modifiche' : 'Salva accesso'}</button></div>
         </form>
       </div>}
     </main>

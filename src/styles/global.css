@@ -479,6 +479,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .shortcut-open { display: none; }
 .add-shortcut { border: 0; background: transparent; }
 :root[data-theme="light"] .add-shortcut { background: transparent; }
+.shortcut-context-backdrop { position: fixed; inset: 0; z-index: 80; background: transparent; }
+.shortcut-context-menu { position: fixed; z-index: 81; min-width: 180px; padding: 5px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--bg-surface-raised); box-shadow: var(--shadow-soft); }
+.shortcut-context-menu button { display: flex; align-items: center; width: 100%; min-height: 34px; padding: 0 10px; gap: 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text-primary); font-size: 11px; text-align: left; cursor: pointer; }
+.shortcut-context-menu button:hover, .shortcut-context-menu button:focus-visible { outline: none; background: var(--accent-soft); }
+.shortcut-context-menu .remove-shortcut-action { color: var(--danger); }
+.shortcut-feedback, .shortcut-dialog-feedback { color: var(--danger); font-size: 10px; line-height: 1.5; }
+.shortcut-feedback { position: absolute; bottom: 68px; left: 50%; z-index: 4; width: min(360px, calc(100% - 32px)); padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--bg-surface-raised); text-align: center; transform: translateX(-50%); }
 .start-footer {
   position: absolute; left: 20px; right: 20px; bottom: 33px; z-index: 1;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
